@@ -1,6 +1,20 @@
+import os
+
 from flask import Flask, render_template
 
+from database.db import init_db, seed_db
+
 app = Flask(__name__)
+
+
+def startup():
+    with app.app_context():
+        init_db()
+        if os.environ.get("SPENDLY_ENV") != "production":
+            seed_db()
+
+
+startup()
 
 
 # ------------------------------------------------------------------ #

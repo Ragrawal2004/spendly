@@ -323,3 +323,27 @@ def test_seed_db_noop_when_demo_user_exists_from_other_connection():
 
     with closing(db.get_db()) as conn:
         assert _counts(conn) == (1, 0)
+
+
+def test_startup_skips_seed_in_production(monkeypatch, tmp_path):
+    monkeypatch.setenv("SPENDLY_ENV", "production")
+    monkeypatch.setenv("SPENDLY_DB", str(tmp_path / "prod.db"))
+
+    import app
+
+    app.startup()
+
+    with closing(db.get_db()) as conn:
+        names = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        demo_user = conn.execute(
+            "SELECT 1 FROM users WHERE email = ?", ("demo@spendly.com",)
+        ).fetchone()
+
+    assert "users" in names
+    assert "expenses" in names
+    assert demo_user is None
