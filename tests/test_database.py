@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from contextlib import closing
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -162,3 +163,48 @@ def test_date_constraint_rejects_invalid_accepts_valid():
         ).fetchone()["n"]
 
     assert count == len(valid_dates)
+
+
+def test_demo_expenses_shape():
+    rows = db._demo_expenses(date(2026, 10, 20))
+
+    assert len(rows) == 8
+
+    dates = [row[2] for row in rows]
+    assert dates == [
+        "2026-10-01",
+        "2026-10-03",
+        "2026-10-05",
+        "2026-10-08",
+        "2026-10-12",
+        "2026-10-15",
+        "2026-10-18",
+        "2026-10-22",
+    ]
+
+    categories = [row[0] for row in rows]
+    assert set(categories) == {
+        "Food",
+        "Transport",
+        "Bills",
+        "Health",
+        "Entertainment",
+        "Shopping",
+        "Other",
+    }
+    assert categories.count("Food") == 2
+
+    amounts = [row[1] for row in rows]
+    assert amounts == [450.0, 120.0, 1800.0, 650.0, 499.0, 2299.0, 300.0, 380.0]
+
+    descriptions = [row[3] for row in rows]
+    assert descriptions == [
+        "Weekly groceries",
+        "Metro card recharge",
+        "Electricity bill",
+        "Pharmacy",
+        "Streaming subscription",
+        "Headphones",
+        "Gift",
+        "Dinner with friends",
+    ]

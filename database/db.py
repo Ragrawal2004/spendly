@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from contextlib import closing
+from datetime import date
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -45,6 +46,25 @@ def init_db() -> None:
     with closing(get_db()) as conn:
         with conn:
             conn.executescript(_SCHEMA)
+
+
+_DEMO_EXPENSES_TABLE = (
+    (1, "Food", 450.00, "Weekly groceries"),
+    (3, "Transport", 120.00, "Metro card recharge"),
+    (5, "Bills", 1800.00, "Electricity bill"),
+    (8, "Health", 650.00, "Pharmacy"),
+    (12, "Entertainment", 499.00, "Streaming subscription"),
+    (15, "Shopping", 2299.00, "Headphones"),
+    (18, "Other", 300.00, "Gift"),
+    (22, "Food", 380.00, "Dinner with friends"),
+)
+
+
+def _demo_expenses(today: date) -> list[tuple[str, float, str, str]]:
+    return [
+        (category, amount, today.replace(day=day).isoformat(), description)
+        for day, category, amount, description in _DEMO_EXPENSES_TABLE
+    ]
 
 
 # seed_db()  — inserts sample data for development
