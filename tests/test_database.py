@@ -9,6 +9,12 @@ from werkzeug.security import check_password_hash
 
 from database import db
 
+_REAL_DB_PATH = Path(__file__).resolve().parent.parent / "spendly.db"
+_REAL_DB_EXISTED_BEFORE = _REAL_DB_PATH.exists()
+_REAL_DB_MTIME_BEFORE = (
+    _REAL_DB_PATH.stat().st_mtime if _REAL_DB_EXISTED_BEFORE else None
+)
+
 
 def _insert_user(conn, name="Test User", email="user@example.com"):
     cur = conn.execute(
@@ -20,10 +26,12 @@ def _insert_user(conn, name="Test User", email="user@example.com"):
 
 def test_database_isolation_env_var_set_and_real_db_untouched():
     assert "SPENDLY_DB" in os.environ
+    assert os.environ["SPENDLY_DB"] != str(_REAL_DB_PATH)
 
-    real_db_path = Path(__file__).resolve().parent.parent / "spendly.db"
-    assert os.environ["SPENDLY_DB"] != str(real_db_path)
-    assert not real_db_path.exists()
+    exists_after = _REAL_DB_PATH.exists()
+    assert exists_after == _REAL_DB_EXISTED_BEFORE
+    if _REAL_DB_EXISTED_BEFORE:
+        assert _REAL_DB_PATH.stat().st_mtime == _REAL_DB_MTIME_BEFORE
 
 
 def test_get_db_returns_row_with_foreign_keys_on():
