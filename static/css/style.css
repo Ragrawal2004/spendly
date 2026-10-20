@@ -572,6 +572,66 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ------------------------------------------------------------------ */
+/* Modal                                                               */
+/* ------------------------------------------------------------------ */
+
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 15, 15, 0.75);
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    z-index: 1000;
+}
+
+.modal-overlay.is-open {
+    display: flex;
+}
+
+.modal-box {
+    position: relative;
+    width: 100%;
+    max-width: 840px;
+    background: var(--ink);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+}
+
+.modal-close {
+    position: absolute;
+    top: -2.5rem;
+    right: 0;
+    background: transparent;
+    border: none;
+    color: var(--paper);
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+}
+
+.modal-close:hover { color: var(--accent-2); }
+
+.modal-video-wrap {
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.modal-video-wrap iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* Footer                                                              */
 /* ------------------------------------------------------------------ */
 
