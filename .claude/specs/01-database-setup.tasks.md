@@ -114,14 +114,20 @@ Satisfies: **AC-12**.
 
 By this point every AC-1…AC-15 test already exists (written alongside its task above). This task is just final cleanup: confirm `tests/test_database.py` contains all 15, run `pytest -q` and fix anything that only surfaces once the whole file runs together (ordering/fixture leakage between tests).
 
+- Checklist step: run `grep -nE "f\"|f'|%s|\.format\(|\+ *(name|email|user|cat)" database/db.py` and confirm no SQL string is built from variables. Every `execute()` call with variable data must use `?` placeholders.
 - Commit: `test: finish AC-1 through AC-15 coverage`
 
 ---
 
 ## Definition of Done (carried over from spec section 15)
 
-- [ ] All 9 tasks above committed individually
-- [ ] `pytest -q` passes, AC-1 through AC-15
-- [ ] `python app.py` and `flask run` both start cleanly and produce `spendly.db` with the demo user + 8 expenses
-- [ ] `SPENDLY_ENV=production python app.py` produces schema only, no demo user
-- [ ] `spendly.db` is git-ignored
+- [ ] `spendly.db` is created on app startup in the project root
+- [ ] Both tables and the index exist with the constraints in section 4
+- [ ] Demo user exists with a hashed password (outside production)
+- [ ] The 8 sample expenses exist and cover all 7 categories
+- [ ] Running startup repeatedly creates no duplicate data
+- [ ] The app starts with both `flask run` and `python app.py`
+- [ ] Foreign key enforcement and cascade delete work
+- [ ] All SQL with variable data is parameterized
+- [ ] All tests AC-1 to AC-15 pass with `pytest -q`
+- [ ] `spendly.db` is in `.gitignore`
