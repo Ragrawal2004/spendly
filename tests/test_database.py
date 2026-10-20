@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from werkzeug.security import check_password_hash
 
 from database import db
 
@@ -208,3 +209,117 @@ def test_demo_expenses_shape():
         "Gift",
         "Dinner with friends",
     ]
+
+
+def _counts(conn):
+    users = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    expenses = conn.execute("SELECT COUNT(*) AS n FROM expenses").fetchone()["n"]
+    return users, expenses
+
+
+def test_seed_db_is_idempotent():
+    today = date(2026, 10, 20)
+
+    db.init_db()
+    db.seed_db(today)
+    db.init_db()
+    db.seed_db(today)
+    db.init_db()
+    db.seed_db(today)
+
+    with closing(db.get_db()) as conn:
+        assert _counts(conn) == (1, 8)
+
+
+def test_seed_db_dates_and_categories():
+    today = date(2026, 10, 20)
+
+    db.init_db()
+    db.seed_db(today)
+
+    with closing(db.get_db()) as conn:
+        rows = conn.execute("SELECT category, date FROM expenses").fetchall()
+
+    dates = {row["date"] for row in rows}
+    assert dates == {
+        "2026-10-01",
+        "2026-10-03",
+        "2026-10-05",
+        "2026-10-08",
+        "2026-10-12",
+        "2026-10-15",
+        "2026-10-18",
+        "2026-10-22",
+    }
+
+    categories = {row["category"] for row in rows}
+    assert categories == {
+        "Food",
+        "Transport",
+        "Bills",
+        "Health",
+        "Entertainment",
+        "Shopping",
+        "Other",
+    }
+
+
+def test_demo_password_is_hashed_and_verifiable():
+    db.init_db()
+    db.seed_db(date(2026, 10, 20))
+
+    with closing(db.get_db()) as conn:
+        password_hash = conn.execute(
+            "SELECT password_hash FROM users WHERE email = ?",
+            ("demo@spendly.com",),
+        ).fetchone()["password_hash"]
+
+    assert password_hash != "demo123"
+    assert check_password_hash(password_hash, "demo123")
+
+
+def test_duplicate_email_case_insensitive_raises():
+    db.init_db()
+    db.seed_db(date(2026, 10, 20))
+
+    with closing(db.get_db()) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                ("Someone Else", "DEMO@SPENDLY.COM", "hash"),
+            )
+
+
+def test_seed_db_rolls_back_on_bad_row(monkeypatch):
+    today = date(2026, 10, 20)
+    db.init_db()
+
+    good_rows = db._demo_expenses(today)
+    bad_rows = list(good_rows)
+    category, _, date_str, description = bad_rows[4]
+    bad_rows[4] = (category, 0, date_str, description)
+
+    monkeypatch.setattr(db, "_demo_expenses", lambda today: bad_rows)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.seed_db(today)
+
+    with closing(db.get_db()) as conn:
+        assert _counts(conn) == (0, 0)
+
+
+def test_seed_db_noop_when_demo_user_exists_from_other_connection():
+    today = date(2026, 10, 20)
+    db.init_db()
+
+    with closing(db.get_db()) as conn:
+        with conn:
+            conn.execute(
+                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                ("Demo User", "demo@spendly.com", "preexisting-hash"),
+            )
+
+    db.seed_db(today)
+
+    with closing(db.get_db()) as conn:
+        assert _counts(conn) == (1, 0)
