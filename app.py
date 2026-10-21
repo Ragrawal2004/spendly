@@ -32,10 +32,11 @@ def clean_registration(form):
     name = form.get("name", "").strip()
     email = form.get("email", "").strip().lower()
     password = form.get("password", "")
-    return name, email, password
+    confirm_password = form.get("confirm_password", "")
+    return name, email, password, confirm_password
 
 
-def validate_registration(name, email, password):
+def validate_registration(name, email, password, confirm_password):
     if not name:
         return "Please enter your name."
     if len(name) > 100:
@@ -59,6 +60,8 @@ def validate_registration(name, email, password):
         return "Password must be at least 8 characters."
     if len(password) > 128:
         return "Password must be 128 characters or fewer."
+    if password != confirm_password:
+        return "Passwords do not match."
     return None
 
 
@@ -67,8 +70,8 @@ def register():
     if request.method == "GET":
         return render_template("register.html")
 
-    name, email, password = clean_registration(request.form)
-    error = validate_registration(name, email, password)
+    name, email, password, confirm_password = clean_registration(request.form)
+    error = validate_registration(name, email, password, confirm_password)
     if error is None:
         try:
             create_user(name, email, generate_password_hash(password))
