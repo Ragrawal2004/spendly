@@ -120,7 +120,7 @@ Each criterion is one test in `tests/test_registration.py`. Tests use temporary 
 - **AC-12** Given a failed POST with name `Asha` and email `asha@example.com`, when the page is rendered, then both values appear in the form inputs and the submitted password does not appear anywhere in the HTML.
 - **AC-13** Given a POST with name `<script>alert(1)</script>` and a 7-character password, when it is sent, then the status is 400 and the response HTML contains the escaped text and not a raw `<script>` tag.
 - **AC-14** Given the same valid form POSTed twice in a row, when both responses are read, then the first is 302, the second is 400 with the duplicate-email message (raised by `create_user()` as `sqlite3.IntegrityError`), and `users` has exactly 1 row.
-- **AC-15** Given `db.create_user` is monkeypatched to raise `sqlite3.IntegrityError`, when a valid form is POSTed, then the status is 400 with the duplicate-email message and no exception escapes; this is the only path that produces that message.
+- **AC-15** Given `app.create_user` is monkeypatched to raise `sqlite3.IntegrityError`, when a valid form is POSTed, then the status is 400 with the duplicate-email message and no exception escapes; this is the only path that produces that message.
 - **AC-16** Given `GET /login?registered=1`, when the page is requested, then it shows the success message; given `GET /login`, then it does not.
 - **AC-17** Given a successful registration, when the application log output and response body are inspected, then neither contains the password or the hash.
 - **AC-18** Given a user created by POSTing `É@x.com` through the route, when `é@x.com` and `É@X.COM` are each POSTed, then each returns 400 with the duplicate-email message and `users` still has 1 row.
