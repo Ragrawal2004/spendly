@@ -644,3 +644,51 @@ def test_ac14_signed_in_post_register_redirects_and_creates_no_user(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/profile")
     assert _count_users() == 1
+
+
+# --- templates (AC-1, AC-8, AC-16, AC-17) ---
+
+
+def test_ac1_login_page_has_fields_and_posts_to_login(client):
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'name="email"' in body
+    assert 'name="password"' in body
+    assert re.search(r'<form[^>]*method="POST"[^>]*action="/login"', body)
+
+
+def test_ac8_failed_login_refills_email_but_never_password(client):
+    _make_rahul()
+
+    response = _post_login(client, "rahul@example.com", "wrong-secret-pw")
+
+    body = response.get_data(as_text=True)
+    assert re.search(r'<input[^>]*name="email"[^>]*value="rahul@example.com"', body)
+    assert "wrong-secret-pw" not in body
+
+
+def test_ac16_nav_reflects_login_state(client):
+    uid = _make_rahul()
+
+    logged_out = client.get("/").get_data(as_text=True)
+    assert "Sign in" in logged_out
+    assert "Get started" in logged_out
+    assert 'action="/logout"' not in logged_out
+
+    login_as(client, uid)
+    logged_in = client.get("/").get_data(as_text=True)
+    assert "Rahul Sharma" in logged_in
+    assert re.search(r'<form[^>]*method="POST"[^>]*action="/logout"', logged_in)
+    assert "Get started" not in logged_in
+
+
+def test_ac17_user_name_is_escaped_in_nav(client):
+    uid = _make_user(name="<b>x</b>", password_hash=generate_password_hash("password123"))
+    login_as(client, uid)
+
+    body = client.get("/").get_data(as_text=True)
+
+    assert "&lt;b&gt;x&lt;/b&gt;" in body
+    assert "<b>x</b>" not in body
