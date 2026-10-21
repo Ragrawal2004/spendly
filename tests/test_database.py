@@ -34,6 +34,14 @@ def test_database_isolation_env_var_set_and_real_db_untouched():
         assert _REAL_DB_PATH.stat().st_mtime == _REAL_DB_MTIME_BEFORE
 
 
+def test_resolve_db_path_falls_back_to_project_root(monkeypatch, tmp_path):
+    monkeypatch.delenv("SPENDLY_DB", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    expected = Path(__file__).resolve().parent.parent / "spendly.db"
+    assert Path(db._resolve_db_path()).resolve() == expected
+
+
 def test_get_db_returns_row_with_foreign_keys_on():
     conn = db.get_db()
     try:
