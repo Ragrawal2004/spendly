@@ -60,6 +60,22 @@ def create_user(name: str, email: str, password_hash: str) -> int:
             return cur.lastrowid
 
 
+def get_user_by_email(email: str) -> sqlite3.Row | None:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT id, name, email, password_hash FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
+
+
+def get_user_by_id(user_id: int) -> sqlite3.Row | None:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT id, name, email FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+
 _DEMO_EXPENSES_TABLE = (
     (1, "Food", 450.00, "Weekly groceries"),
     (3, "Transport", 120.00, "Metro card recharge"),
