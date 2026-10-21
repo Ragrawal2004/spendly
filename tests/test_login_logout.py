@@ -538,3 +538,58 @@ def test_ac29_login_cookie_is_httponly_and_samesite_lax(client):
     cookie = response.headers["Set-Cookie"]
     assert "HttpOnly" in cookie
     assert "SameSite=Lax" in cookie
+
+
+# --- logout (AC-11, AC-12, AC-13, AC-22) ---
+
+
+def test_ac11_logout_clears_session_and_redirects_to_landing(client):
+    uid = _make_rahul()
+    login_as(client, uid)
+
+    response = client.post("/logout")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac12_logout_without_session_is_harmless_and_repeatable(client):
+    init_db()
+
+    for _ in range(2):
+        response = client.post("/logout")
+
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/")
+
+
+def test_ac13_get_logout_is_405_and_keeps_session(client):
+    uid = _make_rahul()
+    login_as(client, uid)
+
+    response = client.get("/logout")
+
+    assert response.status_code == 405
+    with client.session_transaction() as sess:
+        assert sess["user_id"] == uid
+
+
+def test_ac22_login_and_logout_leak_no_password_or_hash(client, caplog):
+    stored_hash = generate_password_hash("password123")
+    _make_user(password_hash=stored_hash)
+
+    with caplog.at_level("DEBUG"):
+        responses = [
+            _post_login(client, "rahul@example.com", "password123"),
+            client.post("/logout"),
+        ]
+
+    for response in responses:
+        haystack = [response.get_data(as_text=True), *response.headers.getlist("Set-Cookie")]
+        for text in haystack:
+            assert "password123" not in text
+            assert stored_hash not in text
+    assert "password123" not in caplog.text
+    assert stored_hash not in caplog.text
