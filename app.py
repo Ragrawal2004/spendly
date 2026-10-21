@@ -1,4 +1,5 @@
 import os
+import secrets
 import sqlite3
 
 from flask import Flask, redirect, render_template, request, url_for
@@ -6,7 +7,27 @@ from werkzeug.security import generate_password_hash
 
 from database.db import create_user, init_db, seed_db
 
+
+def resolve_secret_key(env):
+    key = env.get("SPENDLY_SECRET_KEY")
+    if key:
+        return key
+    if env.get("SPENDLY_ENV") == "production":
+        raise RuntimeError("SPENDLY_SECRET_KEY must be set when SPENDLY_ENV=production")
+    return secrets.token_hex(32)
+
+
+def session_cookie_secure(env):
+    return env.get("SPENDLY_ENV") == "production"
+
+
 app = Flask(__name__)
+app.secret_key = resolve_secret_key(os.environ)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=session_cookie_secure(os.environ),
+)
 
 
 def startup():
