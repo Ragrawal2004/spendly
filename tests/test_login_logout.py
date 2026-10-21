@@ -310,3 +310,142 @@ def test_ac32_wrong_type_user_id_is_cleared(client, bad_value):
     assert response.status_code == 200
     with client.session_transaction() as sess:
         assert "user_id" not in sess
+
+
+# --- login failures and GET (AC-4 to AC-7, AC-9, AC-20, AC-25, AC-27, AC-28, AC-31) ---
+
+GENERIC_ERROR = "Invalid email or password."
+BLANK_ERROR = "Please enter your email and password."
+
+
+def _make_rahul():
+    return _make_user(password_hash=generate_password_hash("password123"))
+
+
+def _post_login(client, email, password):
+    return client.post("/login", data={"email": email, "password": password})
+
+
+def test_ac4_wrong_password_gives_401_and_generic_message(client):
+    _make_rahul()
+
+    response = _post_login(client, "rahul@example.com", "wrong-password")
+
+    assert response.status_code == 401
+    assert GENERIC_ERROR in response.get_data(as_text=True)
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac5_unknown_email_gives_401_and_same_message(client):
+    _make_rahul()
+
+    response = _post_login(client, "nobody@example.com", "password123")
+
+    assert response.status_code == 401
+    assert GENERIC_ERROR in response.get_data(as_text=True)
+
+
+def test_ac6_wrong_password_and_unknown_email_pages_are_identical(client):
+    _make_rahul()
+
+    wrong_password = _post_login(client, "rahul@example.com", "wrong-password")
+    unknown_email = _post_login(client, "nobody@example.com", "wrong-password")
+
+    page_a = wrong_password.get_data(as_text=True).replace("rahul@example.com", "EMAIL")
+    page_b = unknown_email.get_data(as_text=True).replace("nobody@example.com", "EMAIL")
+    assert wrong_password.status_code == unknown_email.status_code == 401
+    assert page_a == page_b
+    for phrase in ("email not found", "no account", "wrong password"):
+        assert phrase not in page_a.lower()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"email": "", "password": "password123"},
+        {"email": "   ", "password": "password123"},
+        {"password": "password123"},
+        {"email": "rahul@example.com", "password": ""},
+        {"email": "rahul@example.com"},
+    ],
+)
+def test_ac7_blank_or_missing_fields_give_400(client, data):
+    _make_rahul()
+
+    response = client.post("/login", data=data)
+
+    assert response.status_code == 400
+    assert BLANK_ERROR in response.get_data(as_text=True)
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac9_password_with_trailing_space_is_rejected(client):
+    _make_rahul()
+
+    response = _post_login(client, "rahul@example.com", "password123 ")
+
+    assert response.status_code == 401
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac20_query_string_credentials_are_ignored(client):
+    _make_rahul()
+
+    response = client.get("/login?email=rahul@example.com&password=password123")
+
+    assert response.status_code == 200
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac25_unknown_email_through_post_does_one_check(client, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "get_user_by_email", lambda email: None)
+    calls = []
+    monkeypatch.setattr(
+        app_module,
+        "check_password_hash",
+        lambda pwhash, password: calls.append((pwhash, password)) or False,
+    )
+
+    response = _post_login(client, "nobody@example.com", "password123")
+
+    assert response.status_code == 401
+    assert len(calls) == 1
+
+
+def test_ac27_registered_banner_only_with_query_flag(client):
+    with_flag = client.get("/login?registered=1").get_data(as_text=True)
+    without_flag = client.get("/login").get_data(as_text=True)
+
+    assert "Account created" in with_flag
+    assert "Account created" not in without_flag
+
+
+@pytest.mark.parametrize(
+    "email, password",
+    [("a" * 255, "password123"), ("rahul@example.com", "p" * 129)],
+)
+def test_ac28_oversized_input_through_post_gives_generic_401(client, email, password):
+    _make_rahul()
+
+    response = _post_login(client, email, password)
+
+    assert response.status_code == 401
+    assert GENERIC_ERROR in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize(
+    "bad_hash", ["not-a-hash", "hash", "", "x$y$z", "scrypt:bad$s$h"]
+)
+def test_ac31_malformed_stored_hash_through_post_gives_generic_401(client, bad_hash):
+    _make_user(password_hash=bad_hash)
+
+    response = _post_login(client, "rahul@example.com", "password123")
+
+    assert response.status_code == 401
+    assert GENERIC_ERROR in response.get_data(as_text=True)

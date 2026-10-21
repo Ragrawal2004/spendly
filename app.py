@@ -153,9 +153,23 @@ def authenticate(email, password):
     return user if ok else None
 
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html", registered=request.args.get("registered") == "1")
+    if g.current_user:
+        return redirect(url_for("profile"))
+
+    if request.method == "GET":
+        return render_template("login.html", registered=request.args.get("registered") == "1")
+
+    email, password = clean_login(request.form)
+    if not email or not password:
+        error, status = "Please enter your email and password.", 400
+    elif authenticate(email, password) is None:
+        error, status = "Invalid email or password.", 401
+    else:
+        # Success branch (session and redirect) is Task 7.
+        error, status = None, 200
+    return render_template("login.html", error=error, email=email), status
 
 
 @app.route("/terms")
