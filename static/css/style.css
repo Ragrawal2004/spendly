@@ -104,7 +104,17 @@ a { color: inherit; text-decoration: none; }
 .nav-links a { color: var(--ink-muted); transition: color 0.2s; }
 .nav-links a:hover { color: var(--ink); }
 
-.nav-user { color: var(--ink); }
+.nav-links .nav-user {
+    color: var(--ink);
+    display: inline-block;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+.nav-links .nav-user:hover { text-decoration: underline; }
 
 .nav-signout-form { display: inline; margin: 0; }
 
@@ -699,6 +709,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 600px) {
-    .nav-links a:not(.nav-cta) { display: none; }
+    .nav-links a:not(.nav-cta):not(.nav-user) { display: none; }
+    .nav-links .nav-user { max-width: 8rem; }
     .hero { padding: 3rem 1rem 2rem; }
 }
