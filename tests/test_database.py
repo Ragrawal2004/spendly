@@ -342,10 +342,10 @@ def test_seed_db_noop_when_demo_user_exists_from_other_connection():
 
 
 def test_startup_skips_seed_in_production(monkeypatch, tmp_path):
+    import app
+
     monkeypatch.setenv("SPENDLY_ENV", "production")
     monkeypatch.setenv("SPENDLY_DB", str(tmp_path / "prod.db"))
-
-    import app
 
     app.startup()
 

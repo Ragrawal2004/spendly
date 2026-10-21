@@ -151,6 +151,12 @@ def test_app_config_has_session_cookie_flags():
     assert app_module.app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
 
 
+def test_app_config_cookie_secure_is_false_outside_production():
+    import app as app_module
+
+    assert app_module.app.config["SESSION_COOKIE_SECURE"] is False
+
+
 # --- clean_login / authenticate (function-level halves of AC-25, AC-28, AC-31) ---
 
 from werkzeug.security import check_password_hash as _real_check_password_hash
