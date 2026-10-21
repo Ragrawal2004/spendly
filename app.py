@@ -2,7 +2,7 @@ import os
 import secrets
 import sqlite3
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
@@ -46,6 +46,28 @@ def startup():
 
 
 startup()
+
+
+@app.before_request
+def load_current_user():
+    if request.endpoint == "static":
+        return
+    g.current_user = None
+    if "user_id" not in session:
+        return
+    user_id = session["user_id"]
+    user = None
+    if isinstance(user_id, int) and not isinstance(user_id, bool):
+        user = get_user_by_id(user_id)
+    if user is None:
+        session.clear()
+        return
+    g.current_user = user
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": getattr(g, "current_user", None)}
 
 
 # ------------------------------------------------------------------ #

@@ -258,3 +258,55 @@ def test_ac31_malformed_stored_hash_returns_none(monkeypatch, bad_hash):
 
     assert app_module.authenticate("rahul@example.com", "password123") is None
     assert len(calls) == 1
+
+
+# --- before_request / context processor (AC-18, AC-19, AC-24, AC-32) ---
+
+
+def login_as(client, uid):
+    with client.session_transaction() as sess:
+        sess["user_id"] = uid
+
+
+def test_ac18_nonexistent_user_id_is_cleared_and_nav_is_logged_out(client):
+    login_as(client, 9999)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "Sign in" in body
+    assert "Get started" in body
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_ac19_garbage_session_cookie_renders_login(client):
+    client.set_cookie("session", "garbage")
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+
+
+def test_ac24_nonexistent_user_id_still_renders_login_form(client):
+    login_as(client, 9999)
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert 'name="email"' in body
+    assert 'name="password"' in body
+
+
+@pytest.mark.parametrize("bad_value", ["1", [1], True])
+def test_ac32_wrong_type_user_id_is_cleared(client, bad_value):
+    _make_user()
+    login_as(client, bad_value)
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
