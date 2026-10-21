@@ -164,11 +164,13 @@ def login():
     email, password = clean_login(request.form)
     if not email or not password:
         error, status = "Please enter your email and password.", 400
-    elif authenticate(email, password) is None:
-        error, status = "Invalid email or password.", 401
     else:
-        # Success branch (session and redirect) is Task 7.
-        error, status = None, 200
+        user = authenticate(email, password)
+        if user is not None:
+            session.clear()
+            session["user_id"] = user["id"]
+            return redirect(url_for("profile"))
+        error, status = "Invalid email or password.", 401
     return render_template("login.html", error=error, email=email), status
 
 

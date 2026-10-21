@@ -449,3 +449,92 @@ def test_ac31_malformed_stored_hash_through_post_gives_generic_401(client, bad_h
 
     assert response.status_code == 401
     assert GENERIC_ERROR in response.get_data(as_text=True)
+
+
+# --- login success (AC-2, AC-3, AC-10, AC-15, AC-21, AC-26, AC-29) ---
+
+from database.db import seed_db
+
+
+def test_ac2_valid_login_redirects_to_profile_with_only_user_id(client):
+    uid = _make_rahul()
+
+    response = _post_login(client, "rahul@example.com", "password123")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/profile")
+    with client.session_transaction() as sess:
+        assert dict(sess) == {"user_id": uid}
+
+
+def test_ac3_email_is_trimmed_and_case_insensitive(client):
+    uid = _make_rahul()
+
+    response = _post_login(client, "  Rahul@EXAMPLE.com ", "password123")
+
+    assert response.status_code == 302
+    with client.session_transaction() as sess:
+        assert sess["user_id"] == uid
+
+
+def test_ac10_non_ascii_email_registered_then_logs_in_in_other_case(client):
+    client.post(
+        "/register",
+        data={
+            "name": "Eve",
+            "email": "É@x.com",
+            "password": "password123",
+            "confirm_password": "password123",
+        },
+    )
+
+    response = _post_login(client, "É@X.COM", "password123")
+
+    assert response.status_code == 302
+    with client.session_transaction() as sess:
+        assert "user_id" in sess
+
+
+def test_ac15_valid_login_while_signed_in_keeps_existing_session(client):
+    uid_a = _make_rahul()
+    uid_b = create_user("Asha", "asha@example.com", generate_password_hash("secret123"))
+    login_as(client, uid_a)
+
+    response = _post_login(client, "asha@example.com", "secret123")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/profile")
+    with client.session_transaction() as sess:
+        assert sess["user_id"] == uid_a != uid_b
+
+
+def test_ac21_login_discards_other_session_data(client):
+    uid = _make_rahul()
+    with client.session_transaction() as sess:
+        sess["junk"] = 1
+
+    _post_login(client, "rahul@example.com", "password123")
+
+    with client.session_transaction() as sess:
+        assert dict(sess) == {"user_id": uid}
+
+
+def test_ac26_seeded_demo_user_can_log_in(client):
+    init_db()
+    seed_db()
+
+    response = _post_login(client, "demo@spendly.com", "demo123")
+
+    assert response.status_code == 302
+    with client.session_transaction() as sess:
+        assert "user_id" in sess
+
+
+def test_ac29_login_cookie_is_httponly_and_samesite_lax(client):
+    _make_rahul()
+
+    response = _post_login(client, "rahul@example.com", "password123")
+
+    cookie = response.headers["Set-Cookie"]
+    assert "HttpOnly" in cookie
+    assert "SameSite=Lax" in cookie
