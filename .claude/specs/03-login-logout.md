@@ -170,4 +170,4 @@ Each criterion is one test in `tests/test_login_logout.py`. Tests use temporary 
 - [ ] `grep -nE "secret_key *= *[\"']" app.py` prints nothing (no literal key)
 - [ ] `git diff -U0 static/css/style.css | grep -E "^\+.*#[0-9a-fA-F]{3,8}"` prints nothing (no new hard-coded colours in the added rules)
 - [ ] No password or hash appears in the terminal output of the running app during the manual run
-- [ ] `git status` shows changes only in the files listed under "Files to change" and "Files to create"
+- [ ] `git status` shows changes only in the files under Files to change and Files to create (the spec, design and tasks files are already committed)
