@@ -41,6 +41,7 @@ Two new read functions in `database/db.py` so routes never touch raw SQL, each u
 - `templates/login.html`
 - `templates/base.html`
 - `static/css/style.css` — style the sign-out button so it looks like a nav link (`.nav-signout`), using existing CSS variables only
+- `tests/test_database.py` — reorder one test so `app` is imported before the production env is set
 - `tests/conftest.py` — set `SPENDLY_SECRET_KEY` at module level with `os.environ.setdefault`, before any test imports `app` (an autouse fixture is too late, because `app` reads the key at import)
 - `CLAUDE.md` — mark Step 3 complete and document the session and the secret key variable
 - `README` or `.env.example`, only if one already exists — mention `SPENDLY_SECRET_KEY`
@@ -62,7 +63,7 @@ No new dependencies. Flask's built-in signed-cookie session is used.
 - All templates extend `base.html`
 - Emails are stripped and lowercased in application code before saving or looking up (SQLite NOCASE is ASCII-only)
 - Login errors never reveal whether the email or the password was wrong: the same message, status and response shape for unknown email, wrong password, and a user whose hash does not verify
-- Secrets such as the Flask secret key come from environment variables, never from the code. `app.secret_key` is set from `resolve_secret_key(os.environ)`, a pure function `resolve_secret_key(env) -> str` in `app.py`: if `SPENDLY_SECRET_KEY` is set in `env`, return its value; if it is unset and `SPENDLY_ENV != "production"`, return a random per-process key from `secrets.token_hex(32)` (sessions end on restart; acceptable for development); if it is unset and `SPENDLY_ENV == "production"`, raise `RuntimeError`, so importing `app` never starts with a guessable key. No default key literal anywhere in the code.
+- Secrets such as the Flask secret key come from environment variables, never from the code. `app.secret_key` is set from `resolve_secret_key(os.environ)`, a pure function `resolve_secret_key(env) -> str` in `app.py`: if `SPENDLY_SECRET_KEY` is set and non-empty in `env`, return its value; an empty or missing `SPENDLY_SECRET_KEY` counts as unset; if it is unset and `SPENDLY_ENV != "production"`, return a random per-process key from `secrets.token_hex(32)` (sessions end on restart; acceptable for development); if it is unset and `SPENDLY_ENV == "production"`, raise `RuntimeError`, so importing `app` never starts with a guessable key. No default key literal anywhere in the code.
 - Passwords and password hashes are never printed or logged, and never stored in the session
 - The session stores only `user_id` (an int). Configure `SESSION_COOKIE_HTTPONLY=True` (Flask default, set explicitly), `SESSION_COOKIE_SAMESITE="Lax"`, and `SESSION_COOKIE_SECURE=session_cookie_secure(os.environ)`, where the pure function `session_cookie_secure(env) -> bool` returns `True` only when `SPENDLY_ENV == "production"`. The session is non-permanent (ends when the browser closes).
 - `clean_login(form) -> (email, password)` in `app.py`: `email` stripped and lowercased, `password` untouched, missing fields become `""`. Nothing else reads the raw form.
@@ -73,7 +74,7 @@ No new dependencies. Flask's built-in signed-cookie session is used.
 - The post-login redirect is always the fixed `url_for('profile')`. There is no `next` parameter and no user-supplied redirect target (avoids open redirects).
 - Jinja autoescaping stays on; never use `|safe` on user input (the nav bar prints the user's name)
 - Template attribute values from user input are always quoted
-- A `before_request` hook sets `g.current_user` for every request except `request.endpoint == "static"`: it looks up the user by `session["user_id"]` with `get_user_by_id()`; if there is no `user_id`, `g.current_user` is `None`; if the id is not found (user deleted, stale session), it clears the session and sets `g.current_user` to `None`. The context processor (supplying `current_user` to templates) and the redirects in `login()` and `register()` all read `g.current_user`; nothing else looks up the session user.
+- A `before_request` hook sets `g.current_user` for every request except `request.endpoint == "static"`: it looks up the user by `session["user_id"]` with `get_user_by_id()`; if `user_id` is missing, `g.current_user` is `None`; if it is not a plain `int` (a string, a list, a bool), or no user has that id, the session is cleared and `g.current_user` is `None`. The context processor (supplying `current_user` to templates) and the redirects in `login()` and `register()` all read `g.current_user`; nothing else looks up the session user.
 
 ## Error handling
 
@@ -88,7 +89,7 @@ No new dependencies. Flask's built-in signed-cookie session is used.
 | `GET /login`, `GET /register` or `POST /register` while logged in | HTTP 302 to `/profile` |
 | `POST /logout` | HTTP 302 to `/`; session empty; works when already logged out |
 | `GET /logout` | HTTP 405 |
-| Session holds a `user_id` that no longer exists | Session cleared; page renders as logged-out; no exception |
+| Session holds a `user_id` that is not an int, or one that no longer exists | Session cleared, page renders as logged-out, no exception |
 | `SPENDLY_SECRET_KEY` unset in production | `RuntimeError` at startup |
 | Any other database error | Not caught; Flask returns HTTP 500 |
 
@@ -138,7 +139,7 @@ Each criterion is one test in `tests/test_login_logout.py`. Tests use temporary 
 - **AC-20** Given `GET /login?email=rahul@example.com&password=password123`, when requested, then the status is 200 and the session has no `user_id`.
 - **AC-21** Given a session pre-populated with an unrelated key (`session["junk"] = 1`) before login, when valid credentials are POSTed, then after login the session contains `user_id` and does not contain `junk`.
 - **AC-22** Given a successful login and logout, when the response bodies, `Set-Cookie` values and captured log output (`caplog`) are inspected, then none contain the password or the password hash.
-- **AC-23** Given `resolve_secret_key`, when it is called directly, then: with `{"SPENDLY_SECRET_KEY": "abc"}` it returns `"abc"`; with an empty env, or `{"SPENDLY_ENV": "development"}`, it returns a non-empty string of 64 hex characters (and two calls differ); with `{"SPENDLY_ENV": "production"}` and no key it raises `RuntimeError`. In addition, one subprocess test runs `python -c "import app"` with `SPENDLY_ENV=production`, `SPENDLY_SECRET_KEY` removed from the environment and `SPENDLY_DB` set to a temporary file path, and the process exits non-zero. The secret-key check in `app.py` runs before `startup()`, so the import fails with `RuntimeError` before any database work is done.
+- **AC-23** Given `resolve_secret_key`, when it is called directly, then: with `{"SPENDLY_SECRET_KEY": "abc"}` it returns `"abc"`; with an empty env, `{"SPENDLY_ENV": "development"}`, or `{"SPENDLY_SECRET_KEY": ""}`, it returns a non-empty string of 64 hex characters (and two calls differ); with `{"SPENDLY_ENV": "production"}` and no key, or with `{"SPENDLY_ENV": "production", "SPENDLY_SECRET_KEY": ""}`, it raises `RuntimeError`. In addition, one subprocess test runs `python -c "import app"` with `SPENDLY_ENV=production`, `SPENDLY_SECRET_KEY` removed from the environment and `SPENDLY_DB` set to a temporary file path, the process exits non-zero, and the temporary `SPENDLY_DB` file was not created. The secret-key check in `app.py` runs before `startup()`, so the import fails with `RuntimeError` before any database work is done.
 - **AC-24** Given a session whose `user_id` is set to an id that does not exist, when `GET /login` is requested, then the status is 200 and the page contains the sign-in form (inputs `email` and `password`).
 - **AC-25** Given `app.get_user_by_email` monkeypatched to return `None` and `app.check_password_hash` monkeypatched to record calls, when an unknown email is POSTed, then `check_password_hash` was called once (the dummy-hash comparison) and the status is 401.
 - **AC-26** Given the demo user seeded by `seed_db()`, when `demo@spendly.com` / `demo123` is POSTed, then login succeeds.
@@ -146,7 +147,8 @@ Each criterion is one test in `tests/test_login_logout.py`. Tests use temporary 
 - **AC-28** Given a 255-character email or a 129-character password, when POSTed, then the status is 401 with "Invalid email or password." and no exception is raised.
 - **AC-29** Given a successful login, when the `Set-Cookie` header of the response is inspected, then the session cookie contains `HttpOnly` and `SameSite=Lax`.
 - **AC-30** Given `session_cookie_secure`, when it is called directly, then it returns `True` for `{"SPENDLY_ENV": "production"}` and `False` for an empty env and for `{"SPENDLY_ENV": "development"}`.
-- **AC-31** Given a user whose stored `password_hash` is not a valid hash (e.g. `"not-a-hash"`), when that user's email and any password are POSTed, then the status is 401 with "Invalid email or password." and no exception is raised.
+- **AC-31** Given a user whose stored `password_hash` is not a valid hash, parametrized over `"not-a-hash"`, `"hash"`, `""`, `"x$y$z"` and `"scrypt:bad$s$h"`, when that user's email and any password are POSTed, then each gives status 401 with "Invalid email or password." and no exception is raised.
+- **AC-32** Given a validly signed session whose `user_id` is not an int (a string, a list, or `True`), when `GET /login` is requested, then the user is treated as logged out, the status is 200, and the session no longer holds `user_id`.
 
 ## Open questions
 
@@ -161,10 +163,10 @@ Each criterion is one test in `tests/test_login_logout.py`. Tests use temporary 
 
 ## Definition of done
 
-- [ ] All acceptance criteria AC-1 to AC-31 pass with `pytest -q`, and the existing database and registration tests still pass
+- [ ] All acceptance criteria AC-1 to AC-32 pass with `pytest -q`, and the existing database and registration tests still pass
 - [ ] The app was run by hand (`SPENDLY_SECRET_KEY=dev-only-value .venv/bin/python3 app.py`, port 5001) and each of these was verified in the browser: demo user (`demo@spendly.com` / `demo123`) signs in and lands on the profile placeholder; the nav shows the name and "Sign out"; "Sign out" returns to the landing page with the logged-out nav; a wrong password and an unknown email show the same message; an empty form shows the blank-fields message; email is kept after an error but the password is not; visiting `/login` while signed in redirects away; typing `/logout` in the address bar shows "Method Not Allowed" and does not sign out; a newly registered user can sign in
 - [ ] Starting the app with `SPENDLY_ENV=production` and no `SPENDLY_SECRET_KEY` fails with a `RuntimeError`
-- [ ] `grep -nEi "select|insert|update|delete" app.py` finds no SQL in `app.py`
+- [ ] `grep -nE "execute\(|(SELECT|INSERT|UPDATE|DELETE) " app.py` finds no SQL in `app.py`
 - [ ] `grep -nE "secret_key *= *[\"']" app.py` prints nothing (no literal key)
 - [ ] `git diff -U0 static/css/style.css | grep -E "^\+.*#[0-9a-fA-F]{3,8}"` prints nothing (no new hard-coded colours in the added rules)
 - [ ] No password or hash appears in the terminal output of the running app during the manual run
