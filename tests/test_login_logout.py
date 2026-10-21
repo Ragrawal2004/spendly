@@ -149,3 +149,112 @@ def test_app_config_has_session_cookie_flags():
     assert app_module.app.secret_key
     assert app_module.app.config["SESSION_COOKIE_HTTPONLY"] is True
     assert app_module.app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
+
+
+# --- clean_login / authenticate (function-level halves of AC-25, AC-28, AC-31) ---
+
+from werkzeug.security import check_password_hash as _real_check_password_hash
+from werkzeug.security import generate_password_hash
+
+
+def _record_checks(monkeypatch):
+    import app as app_module
+
+    calls = []
+
+    def recording_check(pwhash, password):
+        calls.append((pwhash, password))
+        return _real_check_password_hash(pwhash, password)
+
+    monkeypatch.setattr(app_module, "check_password_hash", recording_check)
+    return calls
+
+
+def test_clean_login_strips_and_lowercases_email():
+    import app as app_module
+
+    email, _ = app_module.clean_login({"email": "  Rahul@EXAMPLE.com ", "password": "x"})
+
+    assert email == "rahul@example.com"
+
+
+def test_clean_login_leaves_password_untouched():
+    import app as app_module
+
+    _, password = app_module.clean_login({"email": "a@b.com", "password": "  pass word  "})
+
+    assert password == "  pass word  "
+
+
+def test_clean_login_missing_fields_become_empty_strings():
+    import app as app_module
+
+    assert app_module.clean_login({}) == ("", "")
+
+
+def test_authenticate_valid_credentials_returns_user_row(monkeypatch):
+    import app as app_module
+
+    uid = _make_user(password_hash=generate_password_hash("password123"))
+    calls = _record_checks(monkeypatch)
+
+    row = app_module.authenticate("rahul@example.com", "password123")
+
+    assert row["id"] == uid
+    assert row["email"] == "rahul@example.com"
+    assert len(calls) == 1
+
+
+def test_authenticate_wrong_password_returns_none_after_one_check(monkeypatch):
+    import app as app_module
+
+    _make_user(password_hash=generate_password_hash("password123"))
+    calls = _record_checks(monkeypatch)
+
+    assert app_module.authenticate("rahul@example.com", "wrong-password") is None
+    assert len(calls) == 1
+
+
+def test_ac25_unknown_email_does_one_check_and_returns_none(monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "get_user_by_email", lambda email: None)
+    calls = []
+    monkeypatch.setattr(
+        app_module,
+        "check_password_hash",
+        lambda pwhash, password: calls.append((pwhash, password)) or False,
+    )
+
+    assert app_module.authenticate("nobody@example.com", "password123") is None
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "email, password",
+    [("a" * 255, "password123"), ("rahul@example.com", "p" * 129)],
+)
+def test_ac28_oversized_input_returns_none_without_lookup(monkeypatch, email, password):
+    import app as app_module
+
+    def fail_lookup(_email):
+        raise AssertionError("must not look the user up")
+
+    monkeypatch.setattr(app_module, "get_user_by_email", fail_lookup)
+    calls = _record_checks(monkeypatch)
+
+    assert app_module.authenticate(email, password) is None
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "bad_hash", ["not-a-hash", "hash", "", "x$y$z", "scrypt:bad$s$h"]
+)
+def test_ac31_malformed_stored_hash_returns_none(monkeypatch, bad_hash):
+    import app as app_module
+
+    _make_user(password_hash=bad_hash)
+    calls = _record_checks(monkeypatch)
+
+    assert app_module.authenticate("rahul@example.com", "password123") is None
+    assert len(calls) == 1

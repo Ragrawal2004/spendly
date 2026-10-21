@@ -3,9 +3,15 @@ import secrets
 import sqlite3
 
 from flask import Flask, redirect, render_template, request, url_for
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import create_user, init_db, seed_db
+from database.db import (
+    create_user,
+    get_user_by_email,
+    get_user_by_id,
+    init_db,
+    seed_db,
+)
 
 
 def resolve_secret_key(env):
@@ -28,6 +34,8 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=session_cookie_secure(os.environ),
 )
+
+_DUMMY_PASSWORD_HASH = generate_password_hash("spendly-dummy-password")
 
 
 def startup():
@@ -101,6 +109,26 @@ def register():
     if error:
         return render_template("register.html", error=error, name=name, email=email), 400
     return redirect(url_for("login", registered=1))
+
+
+def clean_login(form):
+    email = form.get("email", "").strip().lower()
+    password = form.get("password", "")
+    return email, password
+
+
+def authenticate(email, password):
+    if len(email) > 254 or len(password) > 128:
+        check_password_hash(_DUMMY_PASSWORD_HASH, "invalid")
+        return None
+
+    user = get_user_by_email(email)
+    pwhash = user["password_hash"] if user else _DUMMY_PASSWORD_HASH
+    try:
+        ok = check_password_hash(pwhash, password)
+    except ValueError:
+        ok = False
+    return user if ok else None
 
 
 @app.route("/login")
