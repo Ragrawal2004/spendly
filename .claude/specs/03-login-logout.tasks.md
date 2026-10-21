@@ -77,8 +77,7 @@ Companion to `03-login-logout.md` (spec) and `03-login-logout.design.md` (design
 
 ---
 
-## Task 5: before_request and context processor
-
+## Task 5: before_request and context process
 **Goal:** a single place that resolves the session user, tolerating bad sessions.
 
 **Change:** `app.py` —
