@@ -2,6 +2,7 @@ import os
 import tempfile
 
 os.environ.setdefault("SPENDLY_DB", tempfile.mkstemp(suffix=".db")[1])
+os.environ.setdefault("SPENDLY_SECRET_KEY", "test-only-secret-key")
 
 import pytest
 
