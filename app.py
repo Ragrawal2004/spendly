@@ -118,6 +118,9 @@ def validate_registration(name, email, password, confirm_password):
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if g.current_user:
+        return redirect(url_for("profile"))
+
     if request.method == "GET":
         return render_template("register.html")
 

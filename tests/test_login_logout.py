@@ -593,3 +593,54 @@ def test_ac22_login_and_logout_leak_no_password_or_hash(client, caplog):
             assert stored_hash not in text
     assert "password123" not in caplog.text
     assert stored_hash not in caplog.text
+
+
+# --- register redirect (AC-14) ---
+
+
+def _count_users():
+    from contextlib import closing
+
+    from database.db import get_db
+
+    with closing(get_db()) as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+
+
+def test_ac14_signed_in_get_login_redirects_to_profile(client):
+    uid = _make_rahul()
+    login_as(client, uid)
+
+    response = client.get("/login")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/profile")
+
+
+def test_ac14_signed_in_get_register_redirects_to_profile(client):
+    uid = _make_rahul()
+    login_as(client, uid)
+
+    response = client.get("/register")
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/profile")
+
+
+def test_ac14_signed_in_post_register_redirects_and_creates_no_user(client):
+    uid = _make_rahul()
+    login_as(client, uid)
+
+    response = client.post(
+        "/register",
+        data={
+            "name": "Priya Patel",
+            "email": "priya@example.com",
+            "password": "password123",
+            "confirm_password": "password123",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/profile")
+    assert _count_users() == 1
