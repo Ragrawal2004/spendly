@@ -136,6 +136,8 @@ Each criterion is one test in `tests/test_registration.py`. Tests use temporary 
 - **AC-23** Given a POST with the `confirm_password` field missing entirely, when it is sent, then the result is the same as AC-22 and no exception is raised.
 - **AC-24** Given matching `password` and `confirm_password`, when the form is POSTed, then registration succeeds as in AC-2.
 - **AC-25** Given any failed POST, when the page is rendered, then the `confirm_password` input has no value in the HTML and the submitted password does not appear anywhere in it.
+- **AC-26** Given the password `short1` with `confirm_password` `other`, when the form is POSTed, then the status is 400 with the password-length error ("Password must be at least 8 characters."), not "Passwords do not match.", and no row is created.
+- **AC-27** Given the password `password123` and `confirm_password` `password123 ` (trailing space), when the form is POSTed, then the status is 400 with "Passwords do not match." and no row is created.
 
 ## Open questions
 
