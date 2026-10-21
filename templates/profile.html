@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Profile - Spendly{% endblock %}
+
+{% block content %}
+<section class="profile-section">
+    <div class="profile-card">
+        <h1>{{ user["name"] }}</h1>
+        <p class="profile-email">{{ user["email"] }}</p>
+        {% if member_since %}
+        <p class="profile-since">Member since {{ member_since }}</p>
+        {% endif %}
+    </div>
+
+    <div class="profile-stats">
+        <div class="stat-tile">
+            <span class="stat-label">Total spent</span>
+            <span class="stat-value">{{ summary["total"]|format_amount }}</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-label">This month</span>
+            <span class="stat-value">{{ summary["month_total"]|format_amount }}</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-label">Expenses</span>
+            <span class="stat-value">{{ summary["count"] }} {{ "expense" if summary["count"] == 1 else "expenses" }}</span>
+        </div>
+    </div>
+
+    <a href="{{ url_for('add_expense') }}" class="btn btn-primary">Add expense</a>
+</section>
+{% endblock %}

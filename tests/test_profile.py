@@ -254,3 +254,155 @@ def test_login_required_decorator_ac23(client):
         g.current_user = {"id": 1, "name": "Rahul Sharma", "email": "rahul@example.com"}
         assert wrapped() == "sentinel"
         assert ran
+
+
+# --- profile page: account card and totals (Task 5) ---
+
+
+def test_profile_shows_account_card_ac2(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Rahul Sharma" in body
+    assert "rahul@example.com" in body
+    assert "Member since" in body
+
+
+def test_profile_totals_and_count_ac6(client):
+    uid = _make_user()
+    for amount in (100.00, 250.50, 49.50):
+        _add_expense(uid, amount, "Food", "2026-10-05")
+    login_as(client, uid)
+
+    body = client.get("/profile").get_data(as_text=True)
+
+    assert "₹400.00" in body
+    assert "3 expenses" in body
+
+
+def test_profile_ignores_user_id_query_ac13(client):
+    uid = _make_user()
+    other = _make_user("Other Person", "other@example.com")
+    login_as(client, uid)
+
+    body = client.get(f"/profile?user_id={other}").get_data(as_text=True)
+
+    assert "Rahul Sharma" in body
+    assert "Other Person" not in body
+
+
+def test_profile_amount_formatting_ac16(client):
+    uid = _make_user()
+    _add_expense(uid, 12345678.9, "Food", "2026-10-05")
+    login_as(client, uid)
+    assert "₹12,345,678.90" in client.get("/profile").get_data(as_text=True)
+
+
+def test_profile_float_sum_formatting_ac16(client):
+    uid = _make_user()
+    _add_expense(uid, 0.1, "Food", "2026-10-05")
+    _add_expense(uid, 0.2, "Food", "2026-10-05")
+    login_as(client, uid)
+    assert "₹0.30" in client.get("/profile").get_data(as_text=True)
+
+
+def test_profile_not_cached_and_sets_no_cookie_ac17(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.get("/profile")
+
+    assert resp.headers["Cache-Control"] == "no-store"
+    assert "Set-Cookie" not in resp.headers
+
+
+def test_profile_never_sends_hash_ac18(client):
+    # Regression guard: the placeholder never leaked it either.
+    uid = _make_user()
+    login_as(client, uid)
+    with closing(get_db()) as conn:
+        stored = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (uid,)
+        ).fetchone()[0]
+
+    body = client.get("/profile").get_data(as_text=True)
+
+    assert stored not in body
+    assert "password_hash" not in body
+
+
+def test_profile_nav_and_add_expense_links_ac20(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    body = client.get("/profile").get_data(as_text=True)
+
+    assert NAV_PROFILE_LINK.search(body)
+    assert 'href="/expenses/add"' in body
+
+
+def test_login_lands_on_profile_ac21(client):
+    _make_user()
+
+    resp = client.post(
+        "/login",
+        data={"email": "rahul@example.com", "password": "password123"},
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert "Rahul Sharma" in resp.get_data(as_text=True)
+
+
+def test_profile_member_since_ac24(client):
+    uid = _make_user()
+    _set_created_at(uid, "2026-03-05 10:20:30")
+    login_as(client, uid)
+
+    body = client.get("/profile").get_data(as_text=True)
+
+    assert "Member since March 2026" in " ".join(body.split())
+
+
+@pytest.mark.parametrize("value", ["garbage", ""])
+def test_profile_bad_created_at_ac25(client, value):
+    uid = _make_user()
+    _set_created_at(uid, value)
+    login_as(client, uid)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    assert "Member since" not in resp.get_data(as_text=True)
+
+
+def test_profile_null_created_at_ac25(client, monkeypatch):
+    uid = _make_user()
+    login_as(client, uid)
+    monkeypatch.setattr(
+        "app.get_user_profile",
+        lambda user_id: {"id": user_id, "name": "Rahul Sharma",
+                         "email": "rahul@example.com", "created_at": None},
+    )
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    assert "Member since" not in resp.get_data(as_text=True)
+
+
+def test_profile_vanished_user_redirects(client, monkeypatch):
+    uid = _make_user()
+    login_as(client, uid)
+    monkeypatch.setattr("app.get_user_profile", lambda user_id: None)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
