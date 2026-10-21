@@ -3,6 +3,7 @@ import os
 import secrets
 import sqlite3
 from datetime import datetime
+from functools import wraps
 
 from flask import Flask, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -97,6 +98,16 @@ def category_share(total, overall):
     if not overall:
         return 0
     return math.floor(total / overall * 100 + 0.5)
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not getattr(g, "current_user", None):
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 # ------------------------------------------------------------------ #
@@ -227,6 +238,7 @@ def logout():
 # ------------------------------------------------------------------ #
 
 @app.route("/profile")
+@login_required
 def profile():
     return "Profile page — coming in Step 4"
 

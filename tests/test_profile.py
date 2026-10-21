@@ -6,7 +6,16 @@ import pytest
 
 from werkzeug.security import generate_password_hash
 
-from app import category_share, format_amount, member_since, month_bounds
+from flask import g
+
+from app import (
+    app,
+    category_share,
+    format_amount,
+    login_required,
+    member_since,
+    month_bounds,
+)
 from database.db import (
     create_user,
     get_category_totals,
@@ -166,3 +175,82 @@ def test_category_share():
     assert category_share(400, 600) == 67
     assert category_share(12.5, 100) == 13
     assert category_share(0, 0) == 0
+
+
+# --- login_required (Task 4; AC-1, 3, 4, 5, 22, 23) ---
+
+
+def test_profile_signed_out_redirects_ac1(client):
+    _make_user()
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    body = resp.get_data(as_text=True)
+    assert "Rahul Sharma" not in body
+    assert "Profile" not in body
+
+
+def test_profile_unknown_user_id_redirects_ac3(client):
+    _make_user()
+    login_as(client, 9999)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+
+
+def test_profile_garbage_cookie_redirects_ac4(client):
+    _make_user()
+    client.set_cookie("session", "garbage")
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+
+
+@pytest.mark.parametrize("method", ["post", "put", "delete"])
+def test_profile_rejects_non_get_ac5(client, method):
+    # Regression guard: the placeholder route is already GET-only.
+    uid = _make_user()
+    login_as(client, uid)
+
+    assert getattr(client, method)("/profile").status_code == 405
+
+
+def test_profile_after_logout_redirects_ac22(client):
+    uid = _make_user()
+    login_as(client, uid)
+    client.post("/logout")
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+
+
+def test_login_required_decorator_ac23(client):
+    ran = []
+
+    def view():
+        ran.append(True)
+        return "sentinel"
+
+    wrapped = login_required(view)
+    assert wrapped.__name__ == "view"
+
+    with app.test_request_context():
+        g.current_user = None
+        resp = wrapped()
+        assert resp.status_code == 302
+        assert resp.headers["Location"] == "/login"
+        assert not ran
+
+        g.current_user = {"id": 1, "name": "Rahul Sharma", "email": "rahul@example.com"}
+        assert wrapped() == "sentinel"
+        assert ran
