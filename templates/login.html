@@ -13,6 +13,9 @@
         </div>
 
         <div class="auth-card">
+            {% if registered %}
+            <div class="auth-success">Account created. Please sign in.</div>
+            {% endif %}
             {% if error %}
             <div class="auth-error">{{ error }}</div>
             {% endif %}

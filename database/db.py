@@ -50,6 +50,16 @@ def init_db() -> None:
             conn.executescript(_SCHEMA)
 
 
+def create_user(name: str, email: str, password_hash: str) -> int:
+    with closing(get_db()) as conn:
+        with conn:
+            cur = conn.execute(
+                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                (name, email, password_hash),
+            )
+            return cur.lastrowid
+
+
 _DEMO_EXPENSES_TABLE = (
     (1, "Food", 450.00, "Weekly groceries"),
     (3, "Transport", 120.00, "Metro card recharge"),

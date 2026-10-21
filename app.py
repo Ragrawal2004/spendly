@@ -1,8 +1,10 @@
 import os
+import sqlite3
 
-from flask import Flask, render_template
+from flask import Flask, redirect, render_template, request, url_for
+from werkzeug.security import generate_password_hash
 
-from database.db import init_db, seed_db
+from database.db import create_user, init_db, seed_db
 
 app = Flask(__name__)
 
@@ -26,14 +28,60 @@ def landing():
     return render_template("landing.html")
 
 
-@app.route("/register")
+def clean_registration(form):
+    name = form.get("name", "").strip()
+    email = form.get("email", "").strip().lower()
+    password = form.get("password", "")
+    return name, email, password
+
+
+def validate_registration(name, email, password):
+    if not name:
+        return "Please enter your name."
+    if len(name) > 100:
+        return "Name must be 100 characters or fewer."
+
+    local, at, domain = email.partition("@")
+    if (
+        not email
+        or len(email) > 254
+        or any(c.isspace() for c in email)
+        or not at
+        or "@" in domain
+        or not local
+        or "." not in domain
+        or domain.startswith(".")
+        or domain.endswith(".")
+    ):
+        return "Please enter a valid email address."
+
+    if len(password) < 8:
+        return "Password must be at least 8 characters."
+    if len(password) > 128:
+        return "Password must be 128 characters or fewer."
+    return None
+
+
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    return render_template("register.html")
+    if request.method == "GET":
+        return render_template("register.html")
+
+    name, email, password = clean_registration(request.form)
+    error = validate_registration(name, email, password)
+    if error is None:
+        try:
+            create_user(name, email, generate_password_hash(password))
+        except sqlite3.IntegrityError:
+            error = "An account with this email already exists."
+    if error:
+        return render_template("register.html", error=error, name=name, email=email), 400
+    return redirect(url_for("login", registered=1))
 
 
 @app.route("/login")
 def login():
-    return render_template("login.html")
+    return render_template("login.html", registered=request.args.get("registered") == "1")
 
 
 @app.route("/terms")
