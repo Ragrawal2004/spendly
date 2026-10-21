@@ -1,10 +1,12 @@
 import re
+from contextlib import closing
+from datetime import date
 
 import pytest
-from contextlib import closing
 
 from werkzeug.security import generate_password_hash
 
+from app import category_share, format_amount, member_since, month_bounds
 from database.db import (
     create_user,
     get_category_totals,
@@ -135,3 +137,32 @@ def test_queries_do_not_leak_other_users(client):
     assert get_category_totals(a) == []
     assert get_recent_expenses(a) == []
     assert get_expense_summary(a, "2026-10-01", "2026-11-01")["count"] == 0
+
+
+# --- pure helpers (Task 3) ---
+
+
+def test_month_bounds_ac7():
+    assert month_bounds(date(2026, 10, 21)) == ("2026-10-01", "2026-11-01")
+    assert month_bounds(date(2026, 12, 15)) == ("2026-12-01", "2027-01-01")
+
+
+def test_member_since_valid():
+    assert member_since("2026-03-05 10:20:30") == "March 2026"
+
+
+@pytest.mark.parametrize("value", [None, "", "garbage"])
+def test_member_since_invalid_returns_none(value):
+    assert member_since(value) is None
+
+
+def test_format_amount():
+    assert format_amount(12345678.9) == "₹12,345,678.90"
+    assert format_amount(0.1 + 0.2) == "₹0.30"
+    assert format_amount(0) == "₹0.00"
+
+
+def test_category_share():
+    assert category_share(400, 600) == 67
+    assert category_share(12.5, 100) == 13
+    assert category_share(0, 0) == 0

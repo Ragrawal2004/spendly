@@ -1,6 +1,8 @@
+import math
 import os
 import secrets
 import sqlite3
+from datetime import datetime
 
 from flask import Flask, g, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -68,6 +70,33 @@ def load_current_user():
 @app.context_processor
 def inject_current_user():
     return {"current_user": getattr(g, "current_user", None)}
+
+
+def month_bounds(today):
+    start = today.replace(day=1)
+    if start.month == 12:
+        next_start = start.replace(year=start.year + 1, month=1)
+    else:
+        next_start = start.replace(month=start.month + 1)
+    return start.isoformat(), next_start.isoformat()
+
+
+def member_since(created_at):
+    try:
+        return datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%B %Y")
+    except (TypeError, ValueError):
+        return None
+
+
+@app.template_filter("format_amount")
+def format_amount(value):
+    return f"₹{value:,.2f}"
+
+
+def category_share(total, overall):
+    if not overall:
+        return 0
+    return math.floor(total / overall * 100 + 0.5)
 
 
 # ------------------------------------------------------------------ #
