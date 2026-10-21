@@ -377,7 +377,10 @@ def test_profile_bad_created_at_ac25(client, value):
     resp = client.get("/profile")
 
     assert resp.status_code == 200
-    assert "Member since" not in resp.get_data(as_text=True)
+    body = resp.get_data(as_text=True)
+    assert "Rahul Sharma" in body
+    assert "rahul@example.com" in body
+    assert "Member since" not in body
 
 
 def test_profile_null_created_at_ac25(client, monkeypatch):
@@ -406,3 +409,89 @@ def test_profile_vanished_user_redirects(client, monkeypatch):
     assert resp.headers["Location"] == "/login"
     with client.session_transaction() as sess:
         assert "user_id" not in sess
+
+
+# --- category breakdown and recent expenses (Task 6) ---
+
+
+def _profile_body(client, uid):
+    login_as(client, uid)
+    return client.get("/profile").get_data(as_text=True)
+
+
+def test_profile_empty_state_ac9(client):
+    uid = _make_user()
+
+    body = _profile_body(client, uid)
+
+    assert "₹0.00" in body
+    assert "0 expenses" in body
+    assert "No expenses yet." in body
+    assert "category-row" not in body
+
+
+def test_profile_category_percent_ac10(client):
+    uid = _make_user()
+    _add_expense(uid, 300, "Food", "2026-10-01")
+    _add_expense(uid, 100, "Food", "2026-10-02")
+    _add_expense(uid, 100, "Transport", "2026-10-03")
+    _add_expense(uid, 100, "Bills", "2026-10-04")
+
+    body = _profile_body(client, uid)
+
+    assert "Food" in body
+    assert "67%" in body
+
+
+def test_profile_isolates_users_ac12(client):
+    a = _make_user()
+    b = _make_user("Other Person", "other@example.com")
+    _add_expense(a, 111, "Food", "2026-10-01", "alpha lunch")
+    _add_expense(b, 222, "Bills", "2026-10-02", "beta rent")
+
+    body_a = _profile_body(client, a)
+    assert "alpha lunch" in body_a
+    assert "beta rent" not in body_a
+    assert "₹222.00" not in body_a
+
+    body_b = _profile_body(client, b)
+    assert "beta rent" in body_b
+    assert "alpha lunch" not in body_b
+    assert "₹111.00" not in body_b
+
+
+def test_profile_escapes_html_ac14(client):
+    uid = _make_user("<b>x</b>", "xss@example.com")
+    _add_expense(uid, 5, "Food", "2026-10-01", "<script>alert(1)</script>")
+
+    body = _profile_body(client, uid)
+
+    assert "&lt;b&gt;x&lt;/b&gt;" in body
+    assert "&lt;script&gt;" in body
+    assert "<script>alert(1)</script>" not in body
+
+
+def test_profile_null_description_dash_ac15(client):
+    uid = _make_user()
+    _add_expense(uid, 5, "Food", "2026-10-01", None)
+
+    body = _profile_body(client, uid)
+
+    assert "—" in body
+    assert "None" not in body
+
+
+def test_profile_demo_user_ac19(client):
+    from database import db
+    from database.db import get_user_by_email, seed_db
+
+    init_db()
+    seed_db()
+    demo = get_user_by_email("demo@spendly.com")
+
+    body = _profile_body(client, demo["id"])
+
+    tbody = body.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    assert len(re.findall(r"<tr\b", tbody)) == 5
+    assert format_amount(sum(row[2] for row in db._DEMO_EXPENSES_TABLE)) in body
+    assert f"{len(db._DEMO_EXPENSES_TABLE)} expenses" in body
