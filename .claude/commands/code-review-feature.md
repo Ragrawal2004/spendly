@@ -18,7 +18,7 @@ If all three are empty, reply "No changes detected" and stop. Untracked files ap
 
 ## Review
 
-Launch the **spendly-security-reviewer** and **spendly-quality-reviewer** subagents at the same time, in one message, so they run in parallel. Give each the step spec (if given) and tell it to review the whole combined diff, all three parts, not only uncommitted work.
+Launch the **spendly-security-reviewer** and **spendly-quality-reviewer** subagents at the same time, in one message, so they run in parallel. The reviewers have no shell, so do not tell them to run git. Paste the full text of the combined diff (all three parts, each under its own heading) into each reviewer's prompt, with the step spec (if given), and tell it to review the whole combined diff.
 
 ## Verdict
 
