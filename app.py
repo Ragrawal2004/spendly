@@ -1,6 +1,8 @@
 import os
+import re
 import secrets
-from datetime import datetime, timezone
+import unicodedata
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
 
@@ -52,6 +54,13 @@ app.config.update(
 )
 
 _DUMMY_PASSWORD_HASH = generate_password_hash("spendly-dummy-password")
+
+CATEGORIES = ("Food", "Transport", "Bills", "Health", "Entertainment", "Shopping", "Other")
+MAX_AMOUNT = Decimal("10000000.00")
+MIN_EXPENSE_DATE = date(2000, 1, 1)
+MAX_DESCRIPTION = 200
+_AMOUNT_RE = re.compile(r"[0-9]{1,15}(\.[0-9]{1,2})?")
+_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def startup():
@@ -298,6 +307,49 @@ def profile():
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
+
+def clean_expense(form):
+    amount = form.get("amount", "").strip()
+    category = form.get("category", "").strip()
+    date = form.get("date", "").strip()
+    description = form.get("description", "").strip()
+    return amount, category, date, description
+
+
+def validate_expense(amount, category, date, description, today):
+    if not _AMOUNT_RE.fullmatch(amount):
+        return "Enter a valid amount, like 250 or 99.50.", None
+    value = Decimal(amount)
+    if value <= 0:
+        return "Amount must be greater than ₹0.", None
+    if value > MAX_AMOUNT:
+        return "Amount must be ₹1,00,00,000 or less.", None
+
+    if category not in CATEGORIES:
+        return "Please choose a category.", None
+
+    # `date` is the form string here, so parse with strptime rather than date.fromisoformat.
+    if not _DATE_RE.fullmatch(date):
+        return "Enter a valid date.", None
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        return "Enter a valid date.", None
+    if not MIN_EXPENSE_DATE <= day <= today + timedelta(days=1):
+        return "Date must be between 1 January 2000 and tomorrow.", None
+
+    if len(description) > MAX_DESCRIPTION:
+        return "Description must be 200 characters or fewer.", None
+    if any(unicodedata.category(c) == "Cc" for c in description):
+        return "Description cannot contain line breaks or control characters.", None
+
+    return None, {
+        "amount": value,
+        "category": category,
+        "date": day,
+        "description": description or None,
+    }
+
 
 @app.route("/expenses/add")
 def add_expense():
