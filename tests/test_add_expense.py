@@ -280,8 +280,8 @@ def test_invalid_post_plain_text_400_ac12(client):
     resp = post_form(client, "/expenses/add", data=_valid_form(amount="abc"))
 
     assert resp.status_code == 400
-    assert resp.headers["Content-Type"].startswith("text/plain")
-    assert resp.get_data(as_text=True) == AMOUNT_FORMAT_ERROR
+    assert resp.headers["Content-Type"].startswith("text/html")
+    assert AMOUNT_FORMAT_ERROR in resp.get_data(as_text=True)
     assert _rows() == []
 
 
@@ -297,8 +297,10 @@ def test_error_does_not_echo_input_ac13(client):
 
     assert resp.status_code == 400
     body = resp.get_data(as_text=True)
-    assert "<script>" not in body
-    assert "<b>" not in body
+    assert "&lt;script&gt;" in body
+    assert "&lt;b&gt;" in body
+    assert "<script>alert(1)" not in body
+    assert "<b>1</b>" not in body
     assert _rows() == []
 
 
@@ -335,7 +337,9 @@ def test_get_placeholder_protected_ac18(client):
     login_as(client, uid)
     resp = client.get("/expenses/add")
     assert resp.status_code == 200
-    assert resp.get_data(as_text=True) == "Add expense form — coming in Step 7"
+    body = resp.get_data(as_text=True)
+    for name in ("amount", "category", "date", "description"):
+        assert f'name="{name}"' in body
 
 
 def test_other_methods_405_ac19(client):
@@ -397,7 +401,10 @@ def test_description_control_chars_ac27(client):
     for description in ("Lunch\x00", "Line1\nLine2", "a\rb", "a\tb", "a\x7fb", "a\x85b"):
         resp = post_form(client, "/expenses/add", data=_valid_form(description=description))
         assert resp.status_code == 400, repr(description)
-        assert resp.get_data(as_text=True) == DESCRIPTION_CONTROL_ERROR
+        assert resp.headers["Content-Type"].startswith("text/html")
+        body = resp.get_data(as_text=True)
+        assert DESCRIPTION_CONTROL_ERROR in body
+        assert 'name="description"' in body
     assert _rows() == []
 
     resp = post_form(client, "/expenses/add", data=_valid_form(description="Lunch\n"))

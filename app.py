@@ -385,18 +385,35 @@ def validate_expense(amount, category, date, description, today):
     }
 
 
+def render_expense_form(today, status=200, error=None, amount="", category="", date_value=None, description=""):
+    return no_store(
+        render_template(
+            "add_expense.html",
+            error=error, amount=amount, category=category, description=description,
+            date_value=today.isoformat() if date_value is None else date_value,
+            categories=CATEGORIES,
+            min_date=MIN_EXPENSE_DATE.isoformat(),
+            max_date=(today + timedelta(days=1)).isoformat(),
+            max_description=MAX_DESCRIPTION,
+        ),
+        status,
+    )
+
+
 @app.route("/expenses/add", methods=["GET", "POST"])
 @login_required
 def add_expense():
+    today = datetime.now(timezone.utc).date()
     if request.method == "GET":
-        return "Add expense form — coming in Step 7"
+        return render_expense_form(today)
 
     amount, category, date_str, description = clean_expense(request.form)
-    error, values = validate_expense(
-        amount, category, date_str, description, today=datetime.now(timezone.utc).date()
-    )
+    error, values = validate_expense(amount, category, date_str, description, today=today)
     if error:
-        return error, 400, {"Content-Type": "text/plain; charset=utf-8"}
+        return render_expense_form(
+            today, 400, error=error, amount=amount, category=category,
+            date_value=date_str, description=description,
+        )
 
     try:
         create_expense(g.current_user["id"], **values)

@@ -1,7 +1,7 @@
 import re
 import secrets
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from werkzeug.security import generate_password_hash
 
@@ -12,6 +12,12 @@ from helpers import csrf_token, post_form
 
 
 CSRF_BODY = "Invalid or missing form token. Reload the page and try again."
+
+# Step 6 messages, copied verbatim.
+AMOUNT_FORMAT_ERROR = "Enter a valid amount, like 250 or 99.50."
+CATEGORY_ERROR = "Please choose a category."
+DATE_RANGE_ERROR = "Date must be between 1 January 2000 and tomorrow."
+DESCRIPTION_LENGTH_ERROR = "Description must be 200 characters or fewer."
 
 _TOKEN_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
 
@@ -111,6 +117,162 @@ def _real_login(client, email="rahul@example.com"):
     resp = client.post("/login", data=_login_form(email=email, csrf_token=token))
     assert resp.status_code == 302
     return token
+
+
+_ADD_FORM_RE = re.compile(
+    r'<form\b[^>]*\bmethod="POST"[^>]*\baction="/expenses/add"[^>]*>(.*?)</form>', re.DOTALL
+)
+_OPTION_RE = re.compile(r'<option value="([^"]*)"')
+_NAV_ADD_RE = re.compile(r'<a\b[^>]*\bhref="/expenses/add"[^>]*>Add Expense</a>')
+
+
+def _add_form(body):
+    match = _ADD_FORM_RE.search(body)
+    return match.group(1) if match else None
+
+
+def _input_tag(form, name):
+    match = re.search(r'<input\b[^>]*\bname="' + name + r'"[^>]*>', form, re.DOTALL)
+    return match.group(0) if match else None
+
+
+# --- Add-expense form (AC-1 to AC-7) ---
+
+
+def test_get_signed_out_redirects_ac1(client):
+    resp = client.get("/expenses/add")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/login")
+
+
+def test_get_renders_form_ac2(client):
+    uid = _make_user()
+    login_as(client, uid)
+    today = _today()
+
+    resp = client.get("/expenses/add")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'class="navbar"' in body
+    form = _add_form(body)
+    assert form is not None, "no POST form to /expenses/add"
+
+    assert _input_tag(form, "amount") is not None
+    date_tag = _input_tag(form, "date")
+    assert date_tag is not None
+    assert f'value="{today.isoformat()}"' in date_tag
+    assert 'min="2000-01-01"' in date_tag
+    assert f'max="{(today + timedelta(days=1)).isoformat()}"' in date_tag
+    description_tag = _input_tag(form, "description")
+    assert description_tag is not None
+    assert 'maxlength="200"' in description_tag
+
+    select = re.search(r'<select\b[^>]*\bname="category"[^>]*>(.*?)</select>', form, re.DOTALL)
+    assert select is not None, "no category select"
+    options = [v for v in _OPTION_RE.findall(select.group(1)) if v]
+    assert options == list(app.CATEGORIES)
+
+    assert re.search(r'<button\b[^>]*\btype="submit"', form)
+    assert 'href="/profile"' in form
+
+
+def test_get_token_matches_session_no_store_ac3(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.get("/expenses/add")
+
+    assert resp.status_code == 200
+    form = _add_form(resp.get_data(as_text=True))
+    assert form is not None, "no POST form to /expenses/add"
+    same = _page_token(form) == _session_token(client)
+    assert same, "page token differs from session token"
+    assert resp.headers.get("Cache-Control") == "no-store"
+    assert "Set-Cookie" not in resp.headers
+
+
+def test_invalid_amount_rerenders_values_ac4(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = post_form(
+        client,
+        "/expenses/add",
+        {"amount": "abc", "category": "Bills", "date": "2026-10-01", "description": "Taxi"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.headers["Content-Type"].startswith("text/html")
+    body = resp.get_data(as_text=True)
+    assert AMOUNT_FORMAT_ERROR in body
+    form = _add_form(body)
+    assert form is not None, "no POST form to /expenses/add"
+    assert 'value="abc"' in _input_tag(form, "amount")
+    assert '<option value="Bills" selected>' in form
+    assert 'value="2026-10-01"' in _input_tag(form, "date")
+    assert 'value="Taxi"' in _input_tag(form, "description")
+    assert _rows() == []
+    assert "Set-Cookie" not in resp.headers
+
+
+def test_rerender_escapes_input_ac5(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = post_form(
+        client,
+        "/expenses/add",
+        _valid_form(amount="<b>1</b>", description='"><script>alert(1)</script>'),
+    )
+
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "&lt;script&gt;" in body
+    assert "&lt;b&gt;" in body
+    assert "<script>alert(1)" not in body
+    assert "<b>1</b>" not in body
+    assert _rows() == []
+
+
+def test_rerender_other_field_errors_ac6(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    cases = (
+        ({"category": "food"}, CATEGORY_ERROR),
+        ({"date": "1999-12-31"}, DATE_RANGE_ERROR),
+        ({"description": "x" * 201}, DESCRIPTION_LENGTH_ERROR),
+    )
+    for over, message in cases:
+        resp = post_form(client, "/expenses/add", _valid_form(**over))
+        assert resp.status_code == 400, message
+        assert resp.headers["Content-Type"].startswith("text/html")
+        body = resp.get_data(as_text=True)
+        assert message in body
+        assert _add_form(body) is not None, "no POST form to /expenses/add"
+    assert _rows() == []
+
+
+def test_end_to_end_real_pages_ac7(client):
+    _make_user()
+    _real_login(client)
+
+    page = client.get("/expenses/add")
+    assert page.status_code == 200
+    form = _add_form(page.get_data(as_text=True))
+    assert form is not None, "no POST form to /expenses/add"
+    token = _page_token(form)
+
+    resp = client.post("/expenses/add", data=_valid_form(csrf_token=token))
+
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/profile")
+    profile = client.get(resp.headers["Location"])
+    body = profile.get_data(as_text=True)
+    assert "Lunch" in body
+    assert "₹250.00" in body
 
 
 # --- POST /expenses/add (AC-8, AC-9, AC-10) ---
@@ -281,6 +443,27 @@ def test_login_register_pages_issue_token_ac20(client):
         assert urlsafe, "token has characters outside URL-safe base64"
 
 
+def test_token_is_per_session_ac21(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    first = client.get("/expenses/add")
+    second = client.get("/expenses/add")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    token_1 = _page_token(_add_form(first.get_data(as_text=True)) or "")
+    token_2 = _page_token(_add_form(second.get_data(as_text=True)) or "")
+    has_token = isinstance(token_1, str)
+    assert has_token, "the add form has no hidden csrf_token"
+    same = token_1 == token_2
+    assert same, "the two pages show different tokens"
+
+    for _ in range(2):
+        resp = client.post("/expenses/add", data=_valid_form(csrf_token=token_1))
+        assert resp.status_code == 303
+    assert len(_rows(uid)) == 2
+
+
 def test_login_rotates_token_ac22(client):
     _make_user()
 
@@ -393,7 +576,12 @@ def test_every_post_form_has_token_ac31(client):
     uid = _make_user()
     signed_in = app.app.test_client()
     login_as(signed_in, uid)
-    pages = ((client, "/login"), (client, "/register"), (signed_in, "/profile"))
+    pages = (
+        (client, "/login"),
+        (client, "/register"),
+        (signed_in, "/profile"),
+        (signed_in, "/expenses/add"),
+    )
 
     for c, url in pages:
         resp = c.get(url)
@@ -402,10 +590,32 @@ def test_every_post_form_has_token_ac31(client):
         has_token = isinstance(session_token, str) and session_token != ""
         assert has_token, f"no session token after {url}"
         forms = _POST_FORM_RE.findall(resp.get_data(as_text=True))
+        if url == "/expenses/add":
+            # The nav sign-out form and the add form.
+            assert len(forms) == 2, f"{url} has {len(forms)} POST forms"
         assert len(forms) >= 1, f"{url} has no POST form"
         for form in forms:
             same = _page_token(form) == session_token
             assert same, f"a POST form on {url} lacks the session token"
+
+
+# --- Navbar (AC-32) ---
+
+
+def test_nav_add_expense_link_ac32(client):
+    uid = _make_user()
+    signed_in = app.app.test_client()
+    login_as(signed_in, uid)
+
+    for url in ("/profile", "/expenses/add"):
+        resp = signed_in.get(url)
+        assert resp.status_code == 200
+        assert _NAV_ADD_RE.search(resp.get_data(as_text=True)), url
+
+    for url in ("/", "/login", "/register"):
+        resp = client.get(url)
+        assert resp.status_code == 200
+        assert _NAV_ADD_RE.search(resp.get_data(as_text=True)) is None, url
 
 
 # --- Step 4 rule and caching of token pages (AC-34, AC-35) ---

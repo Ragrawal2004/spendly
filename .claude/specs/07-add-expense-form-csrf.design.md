@@ -304,7 +304,7 @@ a fresh client with no helper calls. Expected count: 236 + 35 = 271.
 ## Verification
 
 - `.venv/bin/pytest -q` (271 pass) and `.venv/bin/pytest --collect-only -q`.
-- The DoD greps (`|safe`, `style=`, `coming in Step 7`); `git diff main -- tests/... | grep '^-def test_'` empty;
+- The DoD greps (`|safe`, `coming in Step 7`); `git diff main -- templates/ | grep -n '^+.*style='` finds nothing added (the three inline bar widths in `landing.html` predate this branch; Step 8 will handle them); `git diff main -- tests/... | grep '^-def test_'` empty;
   `git diff main -- tests/conftest.py` empty; `shasum spendly.db` unchanged.
 - `grep -rn "<form" templates/` lists POST forms only in `base.html` (sign-out), `login.html`, `register.html` and
   `add_expense.html`. Any other POST form must get the hidden `csrf_token` field before the step is done.

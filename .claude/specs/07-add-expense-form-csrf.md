@@ -251,7 +251,7 @@ None. The decisions the request left to this spec are made in "Rules for impleme
   No other assertion is loosened or removed.
 - [ ] `git diff main -- tests/conftest.py` is empty.
 - [ ] `grep -n "|safe\|Markup\|autoescape false" templates/` finds nothing.
-- [ ] `grep -n "style=" templates/` finds nothing, and every hex colour in `static/css/style.css` sits inside `:root`.
+- [ ] `git diff main -- templates/ | grep -n '^+.*style='` finds nothing added (the three inline bar widths in `landing.html` predate this branch; Step 8 will handle them), and every hex colour in `static/css/style.css` sits inside `:root`.
 - [ ] `grep -n "coming in Step 7" app.py` finds nothing.
 - [ ] `clean_expense`, `validate_expense` and `create_expense` are unchanged in `git diff main`.
 - [ ] `requirements.txt` is unchanged.

@@ -189,7 +189,8 @@ First run `git branch --show-current`; stop if it says `main`.
 shasum spendly.db; .venv/bin/pytest -q; shasum spendly.db
 .venv/bin/pytest --collect-only -q | tail -1                       # 270
 grep -n "coming in Step" app.py                                    # only Step 8 and Step 9
-grep -rn "|safe\|Markup\|autoescape false\|style=" templates/      # nothing
+grep -rn "|safe\|Markup\|autoescape false" templates/              # nothing
+git diff main -- templates/ | grep -n '^+.*style='   # nothing added (the three inline bar widths in landing.html predate this branch; Step 8 will handle them)
 git diff main -- app.py | grep -n "def clean_expense\|def validate_expense"   # nothing
 git diff main -- tests/test_add_expense.py | grep '^-def test_'    # empty
 ```
@@ -228,7 +229,7 @@ shasum spendly.db; .venv/bin/pytest -q; shasum spendly.db
 .venv/bin/pytest --collect-only -q | tail -1                        # 271
 grep -n "#[0-9a-fA-F]\{3,8\}" static/css/style.css                  # every hit inside :root
 grep -o "var(--[a-z0-9-]*)" static/css/style.css | sort -u           # each defined in :root
-grep -rn "style=" templates/                                        # nothing
+git diff main -- templates/ | grep -n '^+.*style='   # nothing added (the three inline bar widths in landing.html predate this branch; Step 8 will handle them)
 grep -n "Steps 10-11\|Step 12\|R4\|csrf_token" CLAUDE.md             # new lines present
 grep -n "Do not deploy" CLAUDE.md                                   # still present
 ```
@@ -290,7 +291,7 @@ git diff main -- tests/test_add_expense.py tests/test_login_logout.py tests/test
 git diff main --stat -- tests/test_add_expense.py tests/test_login_logout.py tests/test_profile.py tests/test_registration.py tests/test_database.py
 git diff main -- tests/test_add_expense.py tests/test_login_logout.py tests/test_profile.py tests/test_registration.py   # only post_form/csrf_token/login_as + the 7 listed AC changes
 grep -rn "|safe\|Markup\|autoescape false" templates/                     # nothing
-grep -rn "style=" templates/                                              # nothing
+git diff main -- templates/ | grep -n '^+.*style='   # nothing added (the three inline bar widths in landing.html predate this branch; Step 8 will handle them)
 grep -n "#[0-9a-fA-F]\{3,8\}" static/css/style.css                        # all inside :root
 grep -n "coming in Step 7" app.py                                         # nothing
 git diff main -- app.py | grep "coming in Step"                           # only the removed Step 7 line
