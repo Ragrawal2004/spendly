@@ -89,6 +89,30 @@ def _assert_csrf_400(resp):
     assert resp.get_data(as_text=True) == CSRF_BODY
 
 
+_URLSAFE_RE = re.compile(r"[A-Za-z0-9_-]+")
+_POST_FORM_RE = re.compile(
+    r'<form\b[^>]*\bmethod="post"[^>]*>(.*?)</form>', re.IGNORECASE | re.DOTALL
+)
+
+
+def _session_token(client):
+    # Reads the token without creating one (unlike helpers.csrf_token).
+    with client.session_transaction() as sess:
+        return sess.get("csrf_token")
+
+
+def _sets_session_cookie(resp):
+    return any(c.startswith("session=") for c in resp.headers.getlist("Set-Cookie"))
+
+
+def _real_login(client, email="rahul@example.com"):
+    page = client.get("/login")
+    token = _page_token(page.get_data(as_text=True))
+    resp = client.post("/login", data=_login_form(email=email, csrf_token=token))
+    assert resp.status_code == 302
+    return token
+
+
 # --- POST /expenses/add (AC-8, AC-9, AC-10) ---
 
 
@@ -232,3 +256,174 @@ def test_logout_valid_token_ac19(client):
     with client.session_transaction() as sess:
         assert "user_id" not in sess
         assert "csrf_token" not in sess
+
+
+# --- Token lifecycle and checking rules (AC-20, AC-22 to AC-31) ---
+
+
+def test_login_register_pages_issue_token_ac20(client):
+    fresh = app.app.test_client()
+    for c, url in ((client, "/login"), (fresh, "/register")):
+        resp = c.get(url)
+
+        assert resp.status_code == 200
+        sets_cookie = _sets_session_cookie(resp)
+        assert sets_cookie, f"{url} set no session cookie"
+        page_token = _page_token(resp.get_data(as_text=True))
+        session_token = _session_token(c)
+        is_str = isinstance(page_token, str)
+        assert is_str, f"{url} has no hidden csrf_token"
+        same = page_token == session_token
+        assert same, "page token differs from session token"
+        token_len = len(page_token)
+        assert token_len >= 43
+        urlsafe = _URLSAFE_RE.fullmatch(page_token) is not None
+        assert urlsafe, "token has characters outside URL-safe base64"
+
+
+def test_login_rotates_token_ac22(client):
+    _make_user()
+
+    t1 = _real_login(client)
+
+    t2 = _session_token(client)
+    is_str = isinstance(t2, str) and len(t2) >= 43
+    assert is_str, "login left no token in the session"
+    rotated = t2 != t1
+    assert rotated, "login did not rotate the token"
+    resp = client.post("/logout", data={"csrf_token": t1})
+    _assert_csrf_400(resp)
+
+
+def test_token_dies_at_logout_ac23(client):
+    uid = _make_user()
+    login_as(client, uid)
+    t = csrf_token(client)
+
+    out = client.post("/logout", data={"csrf_token": t})
+    assert out.status_code == 302
+
+    resp = client.post("/login", data=_login_form(csrf_token=t))
+    _assert_csrf_400(resp)
+
+
+def test_failed_login_keeps_token_ac24(client):
+    _make_user()
+    t = csrf_token(client)
+
+    resp = client.post("/login", data=_login_form(password="wrongpass1", csrf_token=t))
+
+    assert resp.status_code == 401
+    assert "Invalid email or password." in resp.get_data(as_text=True)
+    same = _session_token(client) == t
+    assert same, "failed login changed the session token"
+
+
+def test_other_session_token_rejected_ac25(client):
+    # Both sessions get their tokens from the app (real login), not from the test helper.
+    _make_user()
+    _make_user(name="Asha Verma", email="asha@example.com")
+    client_b = app.app.test_client()
+    _real_login(client)
+    _real_login(client_b, email="asha@example.com")
+    token_a = _session_token(client)
+
+    resp = client_b.post("/expenses/add", data=_valid_form(csrf_token=token_a))
+
+    _assert_csrf_400(resp)
+    assert _rows() == []
+
+
+def test_malformed_tokens_rejected_ac26(client):
+    uid = _make_user()
+    login_as(client, uid)
+    t = csrf_token(client)
+
+    for bad in ("", "é" * 43, "x" * 10_000, t + " "):
+        resp = client.post("/expenses/add", data=_valid_form(csrf_token=bad))
+        _assert_csrf_400(resp)
+        assert _rows() == []
+
+
+def test_absent_session_token_never_matches_ac27(client):
+    uid = _make_user()
+    with client.session_transaction() as sess:
+        sess["user_id"] = uid
+    assert _session_token(client) is None
+
+    empty = client.post("/expenses/add", data=_valid_form(csrf_token=""))
+    _assert_csrf_400(empty)
+    missing = client.post("/expenses/add", data=_valid_form())
+    _assert_csrf_400(missing)
+    assert _rows() == []
+
+
+def test_csrf_before_load_current_user_ac28(client):
+    with client.session_transaction() as sess:
+        sess["user_id"] = 999_999
+    csrf_token(client)
+
+    resp = post_form(client, "/expenses/add", _valid_form())
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/login")
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+    assert _rows() == []
+
+
+def test_405_and_404_not_checked_ac29(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    assert client.put("/expenses/add").status_code == 405
+    assert client.delete("/expenses/add").status_code == 405
+    assert client.post("/profile").status_code == 405
+    assert client.post("/no-such-page").status_code == 404
+
+
+def test_formless_pages_set_no_cookie_ac30(client):
+    for url in ("/", "/terms", "/privacy"):
+        resp = client.get(url)
+        assert resp.status_code == 200
+        assert "Set-Cookie" not in resp.headers, url
+
+
+def test_every_post_form_has_token_ac31(client):
+    uid = _make_user()
+    signed_in = app.app.test_client()
+    login_as(signed_in, uid)
+    pages = ((client, "/login"), (client, "/register"), (signed_in, "/profile"))
+
+    for c, url in pages:
+        resp = c.get(url)
+        assert resp.status_code == 200
+        session_token = _session_token(c)
+        has_token = isinstance(session_token, str) and session_token != ""
+        assert has_token, f"no session token after {url}"
+        forms = _POST_FORM_RE.findall(resp.get_data(as_text=True))
+        assert len(forms) >= 1, f"{url} has no POST form"
+        for form in forms:
+            same = _page_token(form) == session_token
+            assert same, f"a POST form on {url} lacks the session token"
+
+
+# --- Step 4 rule and caching of token pages (AC-34, AC-35) ---
+
+
+def test_profile_after_real_login_no_set_cookie_ac34(client):
+    _make_user()
+    _real_login(client)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    assert "Set-Cookie" not in resp.headers
+
+
+def test_login_register_no_store_ac35(client):
+    fresh = app.app.test_client()
+    for c, url in ((client, "/login"), (fresh, "/register")):
+        resp = c.get(url)
+        assert resp.status_code == 200
+        assert resp.headers.get("Cache-Control") == "no-store", url
