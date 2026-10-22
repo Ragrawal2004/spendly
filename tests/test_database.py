@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 from contextlib import closing
 from datetime import date
 from decimal import Decimal
@@ -439,3 +441,24 @@ def test_seed_db_twice_exact_totals_ac32():
         assert _counts(conn) == (1, 8)
         total = conn.execute("SELECT SUM(amount) AS s FROM expenses").fetchone()["s"]
         assert total == Decimal("6498.00")
+
+
+def test_pytest_refuses_to_run_without_test_url_ac35():
+    env = os.environ.copy()
+    env.pop("SPENDLY_TEST_DATABASE_URL", None)
+    env["DATABASE_URL"] = "postgresql://u:s3cret@h/spendly"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests"],
+        cwd=Path(__file__).resolve().parent.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "SPENDLY_TEST_DATABASE_URL must be set" in output
+    assert "passed" not in output
+    assert "s3cret" not in output
