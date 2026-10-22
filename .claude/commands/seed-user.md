@@ -18,7 +18,7 @@ Then write and run a Python script using Bash, from the project root, that:
 2. Checks if the generated email already exists in the users table (compare case-insensitively). If it does, regenerate until unique.
 
 3. Inserts the user using the same pattern as db.py:
-   `with closing(get_db()) as conn:` then `with conn:`, and a parameterized INSERT using ? placeholders.
+   `with closing(get_db()) as conn, conn.transaction():` and a parameterized INSERT using %s placeholders.
 
 4. Prints a confirmation in this format:
    - id: <id>
