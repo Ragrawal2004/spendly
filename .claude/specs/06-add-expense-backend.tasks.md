@@ -199,7 +199,7 @@ First run `git branch --show-current`; stop if it says `main`.
    - Do not commit until I have reviewed the diff.
 4. Tests added by `/test-feature` that I approve go in their own batch commit (`test: ...`). Ones I reject are removed before any commit.
 
-**Expected count:** 235 + A, where A is the number of collected tests added in approved batches (0 if none). Record the actual number here when T5 ends. T6 uses it.
+**Expected count:** 235 + A, where A is the number of collected tests added in approved batches (0 if none). Record the actual number here when T5 ends. T6 uses it. **Recorded: 236** (235 baseline + 1 gap test, `test_non_ascii_description_stored_unchanged`; A = 1).
 
 **Commit:** none of its own; one per approved fix batch.
 
@@ -218,7 +218,7 @@ First run `git branch --show-current`; stop if it says `main`.
 **Files:** none are edited. Read-only.
 
 **Commands:**
-- `shasum spendly.db` (if present), `.venv/bin/pytest -q`, then `shasum spendly.db` again. Expect all tests passing, a count of **235 + A** (A from T5), and identical hashes.
+- `shasum spendly.db` (if present), `.venv/bin/pytest -q`, then `shasum spendly.db` again. Expect all tests passing, a count of **236**, and identical hashes.
 - `grep -nE "(SELECT|INSERT|UPDATE|DELETE)" app.py`: no SQL.
 - `grep -n "float(" app.py database/db.py`: no float conversion of amounts.
 - `grep -n "session\[" app.py`: no new reads outside `load_current_user`.
@@ -229,7 +229,7 @@ First run `git branch --show-current`; stop if it says `main`.
 - List the manual checks from the spec's Definition of done (signed-out redirect, demo-user placeholder and link, devtools `fetch` POST, `amount=abc` 400) for me to run with `SPENDLY_SECRET_KEY=dev-only-value .venv/bin/python3 app.py`.
 - Report the open review flags: R4 (`Cf` characters still stored) and R6 (`strptime` instead of `date.fromisoformat`).
 
-**Expected count:** **235 + A** (A from T5).
+**Expected count:** **236**.
 
 **Commit:** none.
 
