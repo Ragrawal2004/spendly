@@ -495,7 +495,8 @@ def test_ac2_valid_login_redirects_to_profile_with_only_user_id(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/profile")
     with client.session_transaction() as sess:
-        assert dict(sess) == {"user_id": uid}
+        assert set(sess) == {"user_id", "csrf_token"}
+        assert sess["user_id"] == uid
 
 
 def test_ac3_email_is_trimmed_and_case_insensitive(client):
@@ -548,7 +549,8 @@ def test_ac21_login_discards_other_session_data(client):
     _post_login(client, "rahul@example.com", "password123")
 
     with client.session_transaction() as sess:
-        assert dict(sess) == {"user_id": uid}
+        assert set(sess) == {"user_id", "csrf_token"}
+        assert sess["user_id"] == uid
 
 
 def test_ac26_seeded_demo_user_can_log_in(client):

@@ -74,6 +74,34 @@ def startup():
 startup()
 
 
+CSRF_ERROR = "Invalid or missing form token. Reload the page and try again."
+
+
+@app.template_global("csrf_token")
+def get_csrf_token():
+    token = session.get("csrf_token")
+    if not isinstance(token, str) or not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+# Registered before load_current_user, so a bad POST is rejected before any DB work or session.clear().
+@app.before_request
+def check_csrf_token():
+    if request.method != "POST" or request.endpoint is None:
+        return None
+    expected = session.get("csrf_token")
+    submitted = request.form.get("csrf_token")
+    if (
+        isinstance(expected, str) and expected
+        and isinstance(submitted, str) and submitted
+        and secrets.compare_digest(submitted.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        return None
+    return CSRF_ERROR, 400, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.before_request
 def load_current_user():
     if request.endpoint == "static":
@@ -146,6 +174,12 @@ def login_required(view):
     return wrapped
 
 
+def no_store(rv, status=200):
+    resp = make_response(rv, status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
@@ -198,7 +232,7 @@ def register():
         return redirect(url_for("profile"))
 
     if request.method == "GET":
-        return render_template("register.html")
+        return no_store(render_template("register.html"))
 
     name, email, password, confirm_password = clean_registration(request.form)
     error = validate_registration(name, email, password, confirm_password)
@@ -238,7 +272,9 @@ def login():
         return redirect(url_for("profile"))
 
     if request.method == "GET":
-        return render_template("login.html", registered=request.args.get("registered") == "1")
+        return no_store(
+            render_template("login.html", registered=request.args.get("registered") == "1")
+        )
 
     email, password = clean_login(request.form)
     if not email or not password:
@@ -248,6 +284,7 @@ def login():
         if user is not None:
             session.clear()
             session["user_id"] = user["id"]
+            get_csrf_token()  # fresh token for the new privilege level
             return redirect(url_for("profile"))
         error, status = "Invalid email or password.", 401
     return render_template("login.html", error=error, email=email), status
