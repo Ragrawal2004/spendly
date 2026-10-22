@@ -56,13 +56,17 @@ def login_as(client, uid):
 
 
 def _rows(uid=None):
-    sql = "SELECT id, user_id, amount, category, date, description, created_at FROM expenses"
-    params = ()
-    if uid is not None:
-        sql += " WHERE user_id = %s"
-        params = (uid,)
     with closing(get_db()) as conn:
-        return conn.execute(sql + " ORDER BY id", params).fetchall()
+        if uid is None:
+            return conn.execute(
+                "SELECT id, user_id, amount, category, date, description, created_at "
+                "FROM expenses ORDER BY id"
+            ).fetchall()
+        return conn.execute(
+            "SELECT id, user_id, amount, category, date, description, created_at "
+            "FROM expenses WHERE user_id = %s ORDER BY id",
+            (uid,),
+        ).fetchall()
 
 
 def _today():
@@ -148,7 +152,9 @@ def test_description_length_ac10():
     assert _validate(description="x" * 201) == (DESCRIPTION_LENGTH_ERROR, None)
 
     # Length is counted after stripping, which clean_expense does.
-    cleaned = clean_expense(MultiDict(_valid_form(date="2026-10-22", description="  " + "x" * 200 + "  ")))
+    cleaned = clean_expense(
+        MultiDict(_valid_form(date="2026-10-22", description="  " + "x" * 200 + "  "))
+    )
     error, values = validate_expense(*cleaned, today=TODAY)
     assert error is None
     assert values["description"] == "x" * 200
@@ -351,7 +357,7 @@ def test_unknown_session_user_ac20(client):
 
 
 def test_foreign_key_violation_clears_session_ac21(client, monkeypatch):
-    def boom(*a, **k):
+    def boom(*args, **kwargs):
         raise psycopg.errors.ForeignKeyViolation("x")
 
     monkeypatch.setattr(app_module, "create_expense", boom)
@@ -397,6 +403,19 @@ def test_description_control_chars_ac27(client):
     assert rows[0]["description"] == "Lunch"
 
 
+def test_non_ascii_description_stored_unchanged(client):
+    # Gap test: the spec edge cases say non-ASCII text is stored as typed.
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post("/expenses/add", data=_valid_form(description="चाय ☕"))
+
+    assert resp.status_code == 303
+    rows = _rows(uid)
+    assert len(rows) == 1
+    assert rows[0]["description"] == "चाय ☕"
+
+
 # --- profile and end to end ---
 
 
@@ -419,8 +438,11 @@ def test_profile_totals_exact_ac16(client):
     body = resp.get_data(as_text=True)
     assert "₹0.30" in body
     assert "2 expenses" in body
-    assert "Food" in body
-    assert "Transport" in body
+    # Breakdown-only markup, so the recent list alone cannot satisfy these.
+    assert '<span class="category-name">Food</span>' in body
+    assert '<span class="category-name">Transport</span>' in body
+    assert '<span class="category-share">33%</span>' in body
+    assert '<span class="category-share">67%</span>' in body
     assert "Tea" in body
     assert "Bus" in body
 
