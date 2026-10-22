@@ -7,7 +7,7 @@ from werkzeug.datastructures import MultiDict
 from werkzeug.security import generate_password_hash
 
 # Imported at collection time, so app's startup() demo seed runs before isolated_db drops the tables.
-import app  # noqa: F401
+import app
 from database.db import create_user, get_db, init_db
 from helpers import csrf_token, post_form
 
@@ -210,10 +210,16 @@ def test_invalid_amount_rerenders_values_ac4(client):
     assert AMOUNT_FORMAT_ERROR in body
     form = _add_form(body)
     assert form is not None, "no POST form to /expenses/add"
-    assert 'value="abc"' in _input_tag(form, "amount")
+    amount_tag = _input_tag(form, "amount")
+    assert amount_tag is not None, "no amount input"
+    assert 'value="abc"' in amount_tag
     assert '<option value="Bills" selected>' in form
-    assert 'value="2026-10-01"' in _input_tag(form, "date")
-    assert 'value="Taxi"' in _input_tag(form, "description")
+    date_tag = _input_tag(form, "date")
+    assert date_tag is not None, "no date input"
+    assert 'value="2026-10-01"' in date_tag
+    description_tag = _input_tag(form, "description")
+    assert description_tag is not None, "no description input"
+    assert 'value="Taxi"' in description_tag
     assert _rows() == []
     assert "Set-Cookie" not in resp.headers
 
@@ -421,7 +427,7 @@ def test_logout_valid_token_ac19(client):
         assert "csrf_token" not in sess
 
 
-# --- Token lifecycle and checking rules (AC-20, AC-22 to AC-31) ---
+# --- Token lifecycle and checking rules (AC-20 to AC-31) ---
 
 
 def test_login_register_pages_issue_token_ac20(client):
@@ -619,6 +625,33 @@ def test_nav_add_expense_link_ac32(client):
         assert _NAV_ADD_RE.search(resp.get_data(as_text=True)) is None, url
 
 
+# --- R4: Cf characters are stored and isolated with <bdi> (AC-33) ---
+
+
+def test_cf_descriptions_stored_in_bdi_ac33(client):
+    uid = _make_user()
+    login_as(client, uid)
+    descriptions = ("\u202eabc", "a\u200bb", "\u0915\u094d\u200c\u0937")
+
+    for description in descriptions:
+        resp = post_form(client, "/expenses/add", _valid_form(description=description))
+        assert resp.status_code == 303
+
+    with closing(get_db()) as conn:
+        for description in descriptions:
+            row = conn.execute(
+                "SELECT description FROM expenses WHERE user_id = %s AND description = %s",
+                (uid, description),
+            ).fetchone()
+            assert row is not None, "description was not stored unchanged"
+
+    resp = client.get("/profile")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for description in descriptions:
+        assert f"<bdi>{description}</bdi>" in body
+
+
 # --- Step 4 rule and caching of token pages (AC-34, AC-35) ---
 
 
@@ -638,33 +671,6 @@ def test_login_register_no_store_ac35(client):
         resp = c.get(url)
         assert resp.status_code == 200
         assert resp.headers.get("Cache-Control") == "no-store", url
-
-
-# --- R4: Cf characters are stored and isolated with <bdi> (AC-33) ---
-
-
-def test_cf_descriptions_stored_in_bdi_ac33(client):
-    uid = _make_user()
-    login_as(client, uid)
-    descriptions = ("‮abc", "a​b", "क्‌ष")
-
-    for description in descriptions:
-        resp = post_form(client, "/expenses/add", _valid_form(description=description))
-        assert resp.status_code == 303
-
-    with closing(get_db()) as conn:
-        for description in descriptions:
-            row = conn.execute(
-                "SELECT description FROM expenses WHERE user_id = %s AND description = %s",
-                (uid, description),
-            ).fetchone()
-            assert row is not None, "description was not stored unchanged"
-
-    resp = client.get("/profile")
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    for description in descriptions:
-        assert f"<bdi>{description}</bdi>" in body
 
 
 # --- Spec edge cases with no AC: duplicate fields, token outside the form body ---
