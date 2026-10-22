@@ -8,4 +8,4 @@ Review @$ARGUMENTS against this checklist. Report pass or fail for each item, wi
 3. Errors are not swallowed (no bare except that hides them).
 4. Connections are closed.
 5. Functions match the signatures in the spec.
-6. Anything not covered by a test.
+6. Anything not covered by a te

@@ -76,6 +76,48 @@ def get_user_by_id(user_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def get_user_profile(user_id: int) -> sqlite3.Row | None:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+
+def get_expense_summary(
+    user_id: int, month_start: str, next_month_start: str
+) -> sqlite3.Row:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS total, "
+            "COUNT(*) AS count, "
+            "COALESCE(SUM(CASE WHEN date >= ? AND date < ? THEN amount END), 0) "
+            "AS month_total "
+            "FROM expenses WHERE user_id = ?",
+            (month_start, next_month_start, user_id),
+        ).fetchone()
+
+
+def get_category_totals(user_id: int) -> list[sqlite3.Row]:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT category, SUM(amount) AS total, COUNT(*) AS count "
+            "FROM expenses WHERE user_id = ? "
+            "GROUP BY category ORDER BY total DESC, category ASC",
+            (user_id,),
+        ).fetchall()
+
+
+def get_recent_expenses(user_id: int, limit: int = 5) -> list[sqlite3.Row]:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT id, amount, category, date, description "
+            "FROM expenses WHERE user_id = ? "
+            "ORDER BY date DESC, id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+
+
 _DEMO_EXPENSES_TABLE = (
     (1, "Food", 450.00, "Weekly groceries"),
     (3, "Transport", 120.00, "Metro card recharge"),

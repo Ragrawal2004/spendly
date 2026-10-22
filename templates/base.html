@@ -20,7 +20,7 @@
             </a>
             <div class="nav-links">
                 {% if current_user %}
-                <span class="nav-user">{{ current_user["name"] }}</span>
+                <a href="{{ url_for('profile') }}" class="nav-user">{{ current_user["name"] }}</a>
                 <form method="POST" action="{{ url_for('logout') }}" class="nav-signout-form">
                     <button type="submit" class="nav-signout">Sign out</button>
                 </form>

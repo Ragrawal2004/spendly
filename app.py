@@ -1,14 +1,30 @@
+import math
 import os
 import secrets
 import sqlite3
+from datetime import datetime, timezone
+from functools import wraps
 
-from flask import Flask, g, redirect, render_template, request, session, url_for
+from flask import (
+    Flask,
+    g,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
     create_user,
+    get_category_totals,
+    get_expense_summary,
+    get_recent_expenses,
     get_user_by_email,
     get_user_by_id,
+    get_user_profile,
     init_db,
     seed_db,
 )
@@ -68,6 +84,43 @@ def load_current_user():
 @app.context_processor
 def inject_current_user():
     return {"current_user": getattr(g, "current_user", None)}
+
+
+def month_bounds(today):
+    start = today.replace(day=1)
+    if start.month == 12:
+        next_start = start.replace(year=start.year + 1, month=1)
+    else:
+        next_start = start.replace(month=start.month + 1)
+    return start.isoformat(), next_start.isoformat()
+
+
+def member_since(created_at):
+    try:
+        return datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%B %Y")
+    except (TypeError, ValueError):
+        return None
+
+
+@app.template_filter("format_amount")
+def format_amount(value):
+    return f"₹{value:,.2f}"
+
+
+def category_share(total, overall):
+    if not overall:
+        return 0
+    return math.floor(total / overall * 100 + 0.5)
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not getattr(g, "current_user", None):
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 # ------------------------------------------------------------------ #
@@ -193,14 +246,45 @@ def logout():
     return redirect(url_for("landing"))
 
 
+@app.route("/profile")
+@login_required
+def profile():
+    uid = g.current_user["id"]
+    user = get_user_profile(uid)
+    if user is None:
+        session.clear()
+        return redirect(url_for("login"))
+
+    month_start, next_month_start = month_bounds(datetime.now(timezone.utc).date())
+    summary = get_expense_summary(uid, month_start, next_month_start)
+    categories = [
+        {
+            "category": row["category"],
+            "total": row["total"],
+            "count": row["count"],
+            "percent": category_share(row["total"], summary["total"]),
+        }
+        for row in get_category_totals(uid)
+    ]
+    recent = get_recent_expenses(uid)
+
+    resp = make_response(
+        render_template(
+            "profile.html",
+            user=user,
+            member_since=member_since(user["created_at"]),
+            summary=summary,
+            categories=categories,
+            recent=recent,
+        )
+    )
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
-
-@app.route("/profile")
-def profile():
-    return "Profile page — coming in Step 4"
-
 
 @app.route("/expenses/add")
 def add_expense():
