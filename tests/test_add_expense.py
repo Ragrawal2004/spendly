@@ -8,6 +8,7 @@ import pytest
 from werkzeug.datastructures import MultiDict
 from werkzeug.security import generate_password_hash
 
+import app as app_module
 from app import clean_expense, validate_expense
 from database.db import create_expense, create_user, get_db, init_db
 
@@ -196,3 +197,201 @@ def test_create_expense_constraints_ac24(client):
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         create_expense(uid + 1000, Decimal("10.00"), "Food", date(2026, 10, 5), None)
     assert _rows() == []
+
+
+# --- POST /expenses/add route ---
+
+
+def test_post_signed_out_redirects_ac1(client):
+    _make_user()
+
+    resp = client.post("/expenses/add", data=_valid_form())
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    assert _rows() == []
+
+
+def test_post_valid_creates_row_ac2(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post("/expenses/add", data=_valid_form())
+
+    assert resp.status_code == 303
+    assert resp.headers["Location"] == "/profile"
+    rows = _rows(uid)
+    assert len(rows) == 1
+    assert rows[0]["amount"] == Decimal("250.00")
+    assert rows[0]["category"] == "Food"
+    assert rows[0]["date"] == _today()
+    assert rows[0]["description"] == "Lunch"
+
+
+def test_post_strips_whitespace_ac3(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post(
+        "/expenses/add",
+        data={
+            "amount": "  1234.5 ",
+            "category": " Bills ",
+            "date": " 2026-10-01 ",
+            "description": "  Electricity  ",
+        },
+    )
+
+    assert resp.status_code == 303
+    rows = _rows(uid)
+    assert len(rows) == 1
+    assert rows[0]["amount"] == Decimal("1234.50")
+    assert rows[0]["category"] == "Bills"
+    assert rows[0]["date"] == date(2026, 10, 1)
+    assert rows[0]["description"] == "Electricity"
+
+
+def test_blank_description_stored_null_ac4(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    for description in ("", "   "):
+        resp = client.post("/expenses/add", data=_valid_form(description=description))
+        assert resp.status_code == 303
+
+    rows = _rows(uid)
+    assert len(rows) == 2
+    assert all(row["description"] is None for row in rows)
+
+
+def test_invalid_post_plain_text_400_ac12(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post("/expenses/add", data=_valid_form(amount="abc"))
+
+    assert resp.status_code == 400
+    assert resp.headers["Content-Type"].startswith("text/plain")
+    assert resp.get_data(as_text=True) == AMOUNT_FORMAT_ERROR
+    assert _rows() == []
+
+
+def test_error_does_not_echo_input_ac13(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post(
+        "/expenses/add",
+        data=_valid_form(amount="<b>1</b>", description="<script>alert(1)</script>"),
+    )
+
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "<script>" not in body
+    assert "<b>" not in body
+    assert _rows() == []
+
+
+def test_form_user_id_ignored_ac14(client):
+    a = _make_user()
+    b = _make_user(name="Priya Patel", email="priya@example.com")
+    login_as(client, a)
+
+    resp = client.post("/expenses/add", data=_valid_form(user_id=str(b)))
+
+    assert resp.status_code == 303
+    assert len(_rows(a)) == 1
+    assert _rows(b) == []
+
+
+def test_double_submit_two_rows_ac15(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    for _ in range(2):
+        resp = client.post("/expenses/add", data=_valid_form())
+        assert resp.status_code == 303
+
+    assert len(_rows(uid)) == 2
+
+
+def test_get_placeholder_protected_ac18(client):
+    uid = _make_user()
+
+    resp = client.get("/expenses/add")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+
+    login_as(client, uid)
+    resp = client.get("/expenses/add")
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True) == "Add expense form — coming in Step 7"
+
+
+def test_other_methods_405_ac19(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    assert client.put("/expenses/add", data=_valid_form()).status_code == 405
+    assert client.delete("/expenses/add").status_code == 405
+    assert _rows() == []
+
+
+def test_unknown_session_user_ac20(client):
+    _make_user()
+    login_as(client, 9999)
+
+    resp = client.post("/expenses/add", data=_valid_form())
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+    assert _rows() == []
+
+
+def test_foreign_key_violation_clears_session_ac21(client, monkeypatch):
+    def boom(*a, **k):
+        raise psycopg.errors.ForeignKeyViolation("x")
+
+    monkeypatch.setattr(app_module, "create_expense", boom)
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post("/expenses/add", data=_valid_form())
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/login"
+    with client.session_transaction() as sess:
+        assert "user_id" not in sess
+    assert _rows() == []
+
+
+def test_no_set_cookie_ac22(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post("/expenses/add", data=_valid_form())
+    assert resp.status_code == 303
+    assert "Set-Cookie" not in resp.headers
+
+    resp = client.post("/expenses/add", data=_valid_form(amount="abc"))
+    assert resp.status_code == 400
+    assert "Set-Cookie" not in resp.headers
+
+
+def test_description_control_chars_ac27(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    for description in ("Lunch\x00", "Line1\nLine2", "a\rb", "a\tb", "a\x7fb", "a\x85b"):
+        resp = client.post("/expenses/add", data=_valid_form(description=description))
+        assert resp.status_code == 400, repr(description)
+        assert resp.get_data(as_text=True) == DESCRIPTION_CONTROL_ERROR
+    assert _rows() == []
+
+    resp = client.post("/expenses/add", data=_valid_form(description="Lunch\n"))
+    assert resp.status_code == 303
+    rows = _rows(uid)
+    assert len(rows) == 1
+    assert rows[0]["description"] == "Lunch"

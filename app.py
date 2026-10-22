@@ -20,6 +20,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
+    create_expense,
     create_user,
     get_category_totals,
     get_expense_summary,
@@ -304,10 +305,6 @@ def profile():
     return resp
 
 
-# ------------------------------------------------------------------ #
-# Placeholder routes — students will implement these                  #
-# ------------------------------------------------------------------ #
-
 def clean_expense(form):
     amount = form.get("amount", "").strip()
     category = form.get("category", "").strip()
@@ -351,10 +348,30 @@ def validate_expense(amount, category, date, description, today):
     }
 
 
-@app.route("/expenses/add")
+@app.route("/expenses/add", methods=["GET", "POST"])
+@login_required
 def add_expense():
-    return "Add expense — coming in Step 7"
+    if request.method == "GET":
+        return "Add expense form — coming in Step 7"
 
+    amount, category, date_str, description = clean_expense(request.form)
+    error, values = validate_expense(
+        amount, category, date_str, description, today=datetime.now(timezone.utc).date()
+    )
+    if error:
+        return error, 400, {"Content-Type": "text/plain; charset=utf-8"}
+
+    try:
+        create_expense(g.current_user["id"], **values)
+    except psycopg.errors.ForeignKeyViolation:
+        session.clear()
+        return redirect(url_for("login"))
+    return redirect(url_for("profile"), code=303)
+
+
+# ------------------------------------------------------------------ #
+# Placeholder routes — students will implement these                  #
+# ------------------------------------------------------------------ #
 
 @app.route("/expenses/<int:id>/edit")
 def edit_expense(id):
