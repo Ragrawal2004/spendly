@@ -54,8 +54,8 @@ No database changes. Verified against `database/db.py`: `create_expense`, `creat
 - `app.py` — CSRF helpers and hook, token issued at login, `GET /expenses/add` renders the form, `POST /expenses/add` 400 path renders the form.
 - `templates/base.html`, `templates/login.html`, `templates/register.html`, `templates/profile.html` — as listed above.
 - `static/css/style.css` — styles for the add-expense page and the nav link, using existing variables only.
-- `tests/conftest.py` — add the shared CSRF test helpers (see "Conflicts with existing tests"); the existing guards and fixtures are not changed.
 - `tests/test_add_expense.py`, `tests/test_login_logout.py`, `tests/test_profile.py`, `tests/test_registration.py` — deliberate updates for the token (see "Conflicts with existing tests").
+- `tests/conftest.py` is **not** changed: its guards, fixtures and imports stay exactly as they are.
 - `CLAUDE.md` — document the form, CSRF and the R4 decision; remove the "Do not deploy before Step 7" note only after the CSRF ACs pass and the manual check is done. Also update the roadmap (docs item below).
 
 **Docs item — roadmap in CLAUDE.md:** add a step list to CLAUDE.md with the new roadmap: Steps 1–6 as built, Step 7 add-expense form and CSRF (this step), Step 8 dashboard UI, Step 9 list/search/filter expenses, Step 10 edit expense, Step 11 delete expense, Step 12 deploy. Change the Sessions note "until Steps 8-9" to "until Steps 10-11". Do **not** change the placeholder strings in `app.py`: `"Edit expense — coming in Step 8"` and `"Delete expense — coming in Step 9"` stay as they are, and CLAUDE.md says these strings are out of date and will be replaced in Steps 10 and 11.
@@ -63,6 +63,7 @@ No database changes. Verified against `database/db.py`: `create_expense`, `creat
 ## Files to create
 
 - `templates/add_expense.html`
+- `tests/helpers.py` — the shared CSRF test helpers `csrf_token(client)` and `post_form(...)` (see "Conflicts with existing tests"), imported with `from helpers import csrf_token, post_form`.
 - `tests/test_add_expense_form_csrf.py` — one test per acceptance criterion below, named `test_..._acN`.
 
 ## New dependencies
@@ -149,7 +150,7 @@ No new dependencies. No Flask-WTF, no itsdangerous calls of our own; only the st
 These existing tests post forms without a token, or assert behaviour this step changes on purpose. The design must list each change; none may be silently deleted.
 
 - All `client.post(...)` call sites that post a form must first obtain a token and send it. That is 31 calls in `tests/test_add_expense.py` (20), `tests/test_login_logout.py` (8), `tests/test_profile.py` (2) and `tests/test_registration.py` (1), including the `_post_login` and registration `post` helpers.
-- **Shared helper in `tests/conftest.py`:** two plain functions, imported by the test files:
+- **Shared helper in `tests/helpers.py`** (new file; `tests/conftest.py` is not touched): two plain functions, imported by the test files with `from helpers import csrf_token, post_form`:
   - `csrf_token(client)` returns `session["csrf_token"]` for that client. If the session has none, it first stores a fresh `secrets.token_urlsafe(32)` through `client.session_transaction()`, the same value shape the app creates.
   - `post_form(client, url, data, **kwargs)` copies `data`, adds `csrf_token=csrf_token(client)` unless the caller already passed a `csrf_token` key, and returns `client.post(url, data=..., **kwargs)`.
   - Existing call sites switch from `client.post(url, data=...)` to `post_form(client, url, ...)`. The missing-token and wrong-token ACs call `client.post` directly, or pass their own `csrf_token`.
@@ -159,11 +160,13 @@ These existing tests post forms without a token, or assert behaviour this step c
 - Step 6 AC-13 (input never echoed): becomes "input echoed only escaped"; the raw tags must still not appear.
 - Step 6 AC-18 (placeholder body): becomes the rendered form; the signed-out redirect half stays.
 - Step 6 AC-27 (exact plain-text body for control characters): becomes "400 HTML containing the message, table empty".
+- Step 3 AC-2 (`test_ac2_valid_login_redirects_to_profile_with_only_user_id`, `test_login_logout.py`) asserts `dict(sess) == {"user_id": uid}`. A successful login now also stores a fresh `csrf_token`, so it becomes: the session keys are exactly `{"user_id", "csrf_token"}` and `sess["user_id"] == uid`.
+- Step 3 AC-21 (`test_ac21_login_discards_other_session_data`, `test_login_logout.py`) asserts the same exact dict. It becomes the same two assertions, which still prove the pre-login `junk` key is dropped.
 - Step 6 AC-19 (405 for `PUT`/`DELETE`) and AC-20 (deleted user → 302) must still pass unchanged apart from sending the token on `POST`.
 
 ## Acceptance criteria and tests
 
-Each criterion is one test in `tests/test_add_expense_form_csrf.py`, named `test_..._acN`. Tests use the `spendly_test` PostgreSQL database (dropped and recreated before every test by `isolated_db` and `client`). They create users with `create_user()` and `generate_password_hash`, and read rows with parameterised `SELECT`s through `get_db()`. They get a token either by `GET`ting a form page and reading the hidden field, or through the shared `csrf_token(client)` / `post_form(...)` helpers in `tests/conftest.py`. They never touch `spendly` or `spendly.db`. "The CSRF 400" means status 400, `Content-Type` starting with `text/plain`, and body exactly `Invalid or missing form token. Reload the page and try again.` The valid expense form is `amount=250`, `category=Food`, `date=<today UTC>`, `description=Lunch`.
+Each criterion is one test in `tests/test_add_expense_form_csrf.py`, named `test_..._acN`. Tests use the `spendly_test` PostgreSQL database (dropped and recreated before every test by `isolated_db` and `client`). They create users with `create_user()` and `generate_password_hash`, and read rows with parameterised `SELECT`s through `get_db()`. They get a token either by `GET`ting a form page and reading the hidden field, or through the shared `csrf_token(client)` / `post_form(...)` helpers in `tests/helpers.py`. They never touch `spendly` or `spendly.db`. "The CSRF 400" means status 400, `Content-Type` starting with `text/plain`, and body exactly `Invalid or missing form token. Reload the page and try again.` The valid expense form is `amount=250`, `category=Food`, `date=<today UTC>`, `description=Lunch`.
 
 **Add-expense form**
 
@@ -242,10 +245,11 @@ None. The decisions the request left to this spec are made in "Rules for impleme
 - [ ] Every protected route has one test each for a missing, a wrong and a valid token (AC-8 to AC-19).
 - [ ] All 236 existing tests are still collected and none is deleted: `.venv/bin/pytest --collect-only -q` shows 236 plus the 35 new tests (271), and `git diff main --stat -- tests/test_add_expense.py tests/test_login_logout.py tests/test_profile.py tests/test_registration.py tests/test_database.py` together with `git diff main -- <those files> | grep '^-def test_'` shows no test function removed or renamed.
 - [ ] `git diff main` on those old test files shows only two kinds of change:
-  - adding the token: switching to `post_form` or `csrf_token`, and the `login_as` change
-  - the five Step 6 ACs listed as intentional changes under "Conflicts with existing tests" (AC-1, AC-12, AC-13, AC-18, AC-27)
+  - adding the token: switching to `post_form` or `csrf_token` (imported from `helpers`), and the `login_as` change
+  - the seven ACs listed as intentional changes under "Conflicts with existing tests": the five Step 6 ACs (AC-1, AC-12, AC-13, AC-18, AC-27) plus Step 3 AC-2 and AC-21
   
   No other assertion is loosened or removed.
+- [ ] `git diff main -- tests/conftest.py` is empty.
 - [ ] `grep -n "|safe\|Markup\|autoescape false" templates/` finds nothing.
 - [ ] `grep -n "style=" templates/` finds nothing, and every hex colour in `static/css/style.css` sits inside `:root`.
 - [ ] `grep -n "coming in Step 7" app.py` finds nothing.
