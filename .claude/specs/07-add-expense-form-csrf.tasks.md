@@ -263,7 +263,7 @@ First run `git branch --show-current`; stop if it says `main`.
    - Do not commit until I have reviewed the diff.
 4. Tests added by `/test-feature` that I approve go in their own batch commit (`test: ...`). Tests I reject are removed before any commit.
 
-**Expected count:** 271 + A, where A is the number of collected tests added in approved batches (0 if none). Record the actual number here when V ends; S and f use it. **Recorded:** _(fill in)_
+**Expected count:** 271 + A, where A is the number of collected tests added in approved batches (0 if none). Record the actual number here when V ends; S and f use it. **Recorded:** 273 tests (271 + 2 edge-case tests: duplicate token fields first-wins, token outside the form body ignored), 35 `_acN` tests, `spendly.db` hash unchanged.
 
 **Commit:** none of its own; one per approved fix batch.
 
