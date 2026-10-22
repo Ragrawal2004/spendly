@@ -1,6 +1,7 @@
 import os
 from contextlib import closing
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 import psycopg
 from psycopg.rows import dict_row
@@ -65,6 +66,18 @@ def create_user(name: str, email: str, password_hash: str) -> int:
             "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s) "
             "RETURNING id",
             (name, email, password_hash),
+        ).fetchone()
+        return row["id"]
+
+
+def create_expense(
+    user_id: int, amount: Decimal, category: str, date: date, description: str | None
+) -> int:
+    with closing(get_db()) as conn:
+        row = conn.execute(
+            "INSERT INTO expenses (user_id, amount, category, date, description) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (user_id, amount, category, date, description),
         ).fetchone()
         return row["id"]
 

@@ -2,13 +2,14 @@ from contextlib import closing
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import psycopg
 import pytest
 
 from werkzeug.datastructures import MultiDict
 from werkzeug.security import generate_password_hash
 
 from app import clean_expense, validate_expense
-from database.db import create_user, get_db, init_db
+from database.db import create_expense, create_user, get_db, init_db
 
 
 AMOUNT_FORMAT_ERROR = "Enter a valid amount, like 250 or 99.50."
@@ -166,3 +167,32 @@ def test_check_order_ac11():
 def test_clean_expense_ac25():
     assert clean_expense(MultiDict()) == ("", "", "", "")
     assert clean_expense(MultiDict({"category": " food "}))[1] == "food"
+
+
+def test_create_expense_roundtrip_ac23(client):
+    uid = _make_user()
+    expense_id = create_expense(uid, Decimal("99.50"), "Health", date(2026, 10, 5), None)
+    assert isinstance(expense_id, int)
+    with closing(get_db()) as conn:
+        row = conn.execute(
+            "SELECT user_id, amount, category, date, description, created_at "
+            "FROM expenses WHERE id = %s",
+            (expense_id,),
+        ).fetchone()
+    assert row["user_id"] == uid
+    assert row["amount"] == Decimal("99.50")
+    assert row["category"] == "Health"
+    assert row["date"] == date(2026, 10, 5)
+    assert row["description"] is None
+    assert row["created_at"] is not None
+
+
+def test_create_expense_constraints_ac24(client):
+    uid = _make_user()
+    with pytest.raises(psycopg.errors.CheckViolation):
+        create_expense(uid, Decimal("0"), "Food", date(2026, 10, 5), None)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        create_expense(uid, Decimal("10.00"), "Groceries", date(2026, 10, 5), None)
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        create_expense(uid + 1000, Decimal("10.00"), "Food", date(2026, 10, 5), None)
+    assert _rows() == []
