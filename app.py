@@ -74,6 +74,34 @@ def startup():
 startup()
 
 
+CSRF_ERROR = "Invalid or missing form token. Reload the page and try again."
+
+
+@app.template_global("csrf_token")
+def get_csrf_token():
+    token = session.get("csrf_token")
+    if not isinstance(token, str) or not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+# Registered before load_current_user, so a bad POST is rejected before any DB work or session.clear().
+@app.before_request
+def check_csrf_token():
+    if request.method != "POST" or request.endpoint is None:
+        return None
+    expected = session.get("csrf_token")
+    submitted = request.form.get("csrf_token")
+    if (
+        isinstance(expected, str) and expected
+        and isinstance(submitted, str) and submitted
+        and secrets.compare_digest(submitted.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        return None
+    return CSRF_ERROR, 400, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.before_request
 def load_current_user():
     if request.endpoint == "static":
@@ -146,6 +174,12 @@ def login_required(view):
     return wrapped
 
 
+def no_store(rv, status=200):
+    resp = make_response(rv, status)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
@@ -198,7 +232,7 @@ def register():
         return redirect(url_for("profile"))
 
     if request.method == "GET":
-        return render_template("register.html")
+        return no_store(render_template("register.html"))
 
     name, email, password, confirm_password = clean_registration(request.form)
     error = validate_registration(name, email, password, confirm_password)
@@ -238,7 +272,9 @@ def login():
         return redirect(url_for("profile"))
 
     if request.method == "GET":
-        return render_template("login.html", registered=request.args.get("registered") == "1")
+        return no_store(
+            render_template("login.html", registered=request.args.get("registered") == "1")
+        )
 
     email, password = clean_login(request.form)
     if not email or not password:
@@ -248,6 +284,7 @@ def login():
         if user is not None:
             session.clear()
             session["user_id"] = user["id"]
+            get_csrf_token()  # fresh token for the new privilege level
             return redirect(url_for("profile"))
         error, status = "Invalid email or password.", 401
     return render_template("login.html", error=error, email=email), status
@@ -348,18 +385,35 @@ def validate_expense(amount, category, date, description, today):
     }
 
 
+def render_expense_form(today, status=200, error=None, amount="", category="", date_value=None, description=""):
+    return no_store(
+        render_template(
+            "add_expense.html",
+            error=error, amount=amount, category=category, description=description,
+            date_value=today.isoformat() if date_value is None else date_value,
+            categories=CATEGORIES,
+            min_date=MIN_EXPENSE_DATE.isoformat(),
+            max_date=(today + timedelta(days=1)).isoformat(),
+            max_description=MAX_DESCRIPTION,
+        ),
+        status,
+    )
+
+
 @app.route("/expenses/add", methods=["GET", "POST"])
 @login_required
 def add_expense():
+    today = datetime.now(timezone.utc).date()
     if request.method == "GET":
-        return "Add expense form — coming in Step 7"
+        return render_expense_form(today)
 
     amount, category, date_str, description = clean_expense(request.form)
-    error, values = validate_expense(
-        amount, category, date_str, description, today=datetime.now(timezone.utc).date()
-    )
+    error, values = validate_expense(amount, category, date_str, description, today=today)
     if error:
-        return error, 400, {"Content-Type": "text/plain; charset=utf-8"}
+        return render_expense_form(
+            today, 400, error=error, amount=amount, category=category,
+            date_value=date_str, description=description,
+        )
 
     try:
         create_expense(g.current_user["id"], **values)

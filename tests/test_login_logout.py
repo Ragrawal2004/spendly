@@ -4,6 +4,7 @@ from database.db import (
     get_user_by_id,
     init_db,
 )
+from helpers import csrf_token, post_form
 
 
 def _make_user(name="Rahul Sharma", email="rahul@example.com", password_hash="hash"):
@@ -295,6 +296,7 @@ def test_ac31_malformed_stored_hash_returns_none(monkeypatch, bad_hash):
 def login_as(client, uid):
     with client.session_transaction() as sess:
         sess["user_id"] = uid
+    csrf_token(client)
 
 
 def test_ac18_nonexistent_user_id_is_cleared_and_nav_is_logged_out(client):
@@ -352,7 +354,7 @@ def _make_rahul():
 
 
 def _post_login(client, email, password):
-    return client.post("/login", data={"email": email, "password": password})
+    return post_form(client, "/login", data={"email": email, "password": password})
 
 
 def test_ac4_wrong_password_gives_401_and_generic_message(client):
@@ -402,7 +404,7 @@ def test_ac6_wrong_password_and_unknown_email_pages_are_identical(client):
 def test_ac7_blank_or_missing_fields_give_400(client, data):
     _make_rahul()
 
-    response = client.post("/login", data=data)
+    response = post_form(client, "/login", data=data)
 
     assert response.status_code == 400
     assert BLANK_ERROR in response.get_data(as_text=True)
@@ -493,7 +495,8 @@ def test_ac2_valid_login_redirects_to_profile_with_only_user_id(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/profile")
     with client.session_transaction() as sess:
-        assert dict(sess) == {"user_id": uid}
+        assert set(sess) == {"user_id", "csrf_token"}
+        assert sess["user_id"] == uid
 
 
 def test_ac3_email_is_trimmed_and_case_insensitive(client):
@@ -507,7 +510,8 @@ def test_ac3_email_is_trimmed_and_case_insensitive(client):
 
 
 def test_ac10_non_ascii_email_registered_then_logs_in_in_other_case(client):
-    client.post(
+    post_form(
+        client,
         "/register",
         data={
             "name": "Eve",
@@ -545,7 +549,8 @@ def test_ac21_login_discards_other_session_data(client):
     _post_login(client, "rahul@example.com", "password123")
 
     with client.session_transaction() as sess:
-        assert dict(sess) == {"user_id": uid}
+        assert set(sess) == {"user_id", "csrf_token"}
+        assert sess["user_id"] == uid
 
 
 def test_ac26_seeded_demo_user_can_log_in(client):
@@ -576,7 +581,7 @@ def test_ac11_logout_clears_session_and_redirects_to_landing(client):
     uid = _make_rahul()
     login_as(client, uid)
 
-    response = client.post("/logout")
+    response = post_form(client, "/logout")
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/")
@@ -588,7 +593,7 @@ def test_ac12_logout_without_session_is_harmless_and_repeatable(client):
     init_db()
 
     for _ in range(2):
-        response = client.post("/logout")
+        response = post_form(client, "/logout")
 
         assert response.status_code == 302
         assert response.headers["Location"].endswith("/")
@@ -612,7 +617,7 @@ def test_ac22_login_and_logout_leak_no_password_or_hash(client, caplog):
     with caplog.at_level("DEBUG"):
         responses = [
             _post_login(client, "rahul@example.com", "password123"),
-            client.post("/logout"),
+            post_form(client, "/logout"),
         ]
 
     for response in responses:
@@ -660,7 +665,8 @@ def test_ac14_signed_in_post_register_redirects_and_creates_no_user(client):
     uid = _make_rahul()
     login_as(client, uid)
 
-    response = client.post(
+    response = post_form(
+        client,
         "/register",
         data={
             "name": "Priya Patel",
@@ -725,7 +731,8 @@ def test_ac17_user_name_is_escaped_in_nav(client):
 
 def test_ac31_session_user_id_is_int_after_register_and_login(client):
     init_db()
-    client.post(
+    post_form(
+        client,
         "/register",
         data={
             "name": "Rahul Sharma",
