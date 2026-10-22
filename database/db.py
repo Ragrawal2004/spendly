@@ -30,6 +30,19 @@ CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, date);
 """
 
 
+_MISSING_URL_MESSAGE = (
+    "DATABASE_URL must be set, "
+    "e.g. DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/spendly"
+)
+
+
+def resolve_database_url(env) -> str:
+    url = env.get("DATABASE_URL")
+    if url:
+        return url
+    raise RuntimeError(_MISSING_URL_MESSAGE)
+
+
 def _resolve_db_path() -> str:
     return os.environ.get("SPENDLY_DB") or os.path.join(
         os.path.dirname(__file__), "..", "spendly.db"
@@ -52,12 +65,12 @@ def init_db() -> None:
 
 def create_user(name: str, email: str, password_hash: str) -> int:
     with closing(get_db()) as conn:
-        with conn:
-            cur = conn.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                (name, email, password_hash),
-            )
-            return cur.lastrowid
+        row = conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) "
+            "RETURNING id",
+            (name, email, password_hash),
+        ).fetchone()
+        return row["id"]
 
 
 def get_user_by_email(email: str) -> sqlite3.Row | None:
@@ -150,11 +163,11 @@ def seed_db(today: date | None = None) -> None:
             return
 
         password_hash = generate_password_hash("demo123")
-        cur = conn.execute(
-            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+        user_id = conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) "
+            "RETURNING id",
             ("Demo User", "demo@spendly.com", password_hash),
-        )
-        user_id = cur.lastrowid
+        ).fetchone()["id"]
 
         for category, amount, date_str, description in _demo_expenses(today):
             conn.execute(

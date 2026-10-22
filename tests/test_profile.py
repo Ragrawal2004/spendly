@@ -40,13 +40,12 @@ def login_as(client, uid):
 
 def _add_expense(uid, amount, category, date, description=None):
     with closing(get_db()) as conn:
-        with conn:
-            cur = conn.execute(
-                "INSERT INTO expenses (user_id, amount, category, date, description) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (uid, amount, category, date, description),
-            )
-    return cur.lastrowid
+        row = conn.execute(
+            "INSERT INTO expenses (user_id, amount, category, date, description) "
+            "VALUES (?, ?, ?, ?, ?) RETURNING id",
+            (uid, amount, category, date, description),
+        ).fetchone()
+        return row["id"]
 
 
 def _set_created_at(uid, value):
@@ -365,7 +364,7 @@ def test_profile_never_sends_hash_ac18(client):
     with closing(get_db()) as conn:
         stored = conn.execute(
             "SELECT password_hash FROM users WHERE id = ?", (uid,)
-        ).fetchone()[0]
+        ).fetchone()["password_hash"]
 
     body = client.get("/profile").get_data(as_text=True)
 
@@ -407,10 +406,14 @@ def test_profile_member_since_ac24(client):
 
 
 @pytest.mark.parametrize("value", ["garbage", ""])
-def test_profile_bad_created_at_ac25(client, value):
+def test_profile_bad_created_at_ac25(client, monkeypatch, value):
     uid = _make_user()
-    _set_created_at(uid, value)
     login_as(client, uid)
+    monkeypatch.setattr(
+        "app.get_user_profile",
+        lambda user_id: {"id": user_id, "name": "Rahul Sharma",
+                         "email": "rahul@example.com", "created_at": value},
+    )
 
     resp = client.get("/profile")
 

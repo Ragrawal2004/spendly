@@ -698,3 +698,23 @@ def test_ac17_user_name_is_escaped_in_nav(client):
 
     assert "&lt;b&gt;x&lt;/b&gt;" in body
     assert "<b>x</b>" not in body
+
+
+def test_ac31_session_user_id_is_int_after_register_and_login(client):
+    init_db()
+    client.post(
+        "/register",
+        data={
+            "name": "Rahul Sharma",
+            "email": "rahul@example.com",
+            "password": "password123",
+            "confirm_password": "password123",
+        },
+    )
+    _post_login(client, "rahul@example.com", "password123")
+
+    with client.session_transaction() as sess:
+        user_id = sess["user_id"]
+    assert isinstance(user_id, int)
+    assert user_id == get_user_by_email("rahul@example.com")["id"]
+    assert client.get("/profile").status_code == 200

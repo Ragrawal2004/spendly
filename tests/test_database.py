@@ -17,11 +17,12 @@ _REAL_DB_MTIME_BEFORE = (
 
 
 def _insert_user(conn, name="Test User", email="user@example.com"):
-    cur = conn.execute(
-        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+    row = conn.execute(
+        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) "
+        "RETURNING id",
         (name, email, "hash"),
-    )
-    return cur.lastrowid
+    ).fetchone()
+    return row["id"]
 
 
 def test_database_isolation_env_var_set_and_real_db_untouched():
@@ -363,3 +364,48 @@ def test_startup_skips_seed_in_production(monkeypatch, tmp_path):
     assert "users" in names
     assert "expenses" in names
     assert demo_user is None
+
+
+def test_resolve_database_url_returns_set_value_ac2():
+    env = {"DATABASE_URL": "postgresql://u@h/db"}
+
+    assert db.resolve_database_url(env) == "postgresql://u@h/db"
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"SPENDLY_ENV": "production"},
+        {"SPENDLY_ENV": "production", "DATABASE_URL": ""},
+    ],
+)
+def test_resolve_database_url_production_requires_url_ac3(env):
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        db.resolve_database_url(env)
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {"SPENDLY_ENV": "development"},
+        {"SPENDLY_ENV": "development", "DATABASE_URL": ""},
+    ],
+)
+def test_resolve_database_url_development_requires_url_ac4(env):
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        db.resolve_database_url(env)
+
+
+def test_resolve_database_url_message_is_fixed_ac33():
+    env = {"SPENDLY_TEST_DATABASE_URL": "postgresql://u:s3cret@h/spendly_test"}
+
+    with pytest.raises(RuntimeError) as excinfo:
+        db.resolve_database_url(env)
+
+    assert str(excinfo.value) == db._MISSING_URL_MESSAGE
+    assert str(excinfo.value) == (
+        "DATABASE_URL must be set, "
+        "e.g. DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/spendly"
+    )
+    assert "s3cret" not in str(excinfo.value)
