@@ -1,10 +1,10 @@
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
 
+import psycopg
 from flask import (
     Flask,
     g,
@@ -195,7 +195,7 @@ def register():
     if error is None:
         try:
             create_user(name, email, generate_password_hash(password))
-        except sqlite3.IntegrityError:
+        except psycopg.errors.UniqueViolation:
             error = "An account with this email already exists."
     if error:
         return render_template("register.html", error=error, name=name, email=email), 400

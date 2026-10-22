@@ -1,10 +1,12 @@
 import os
-import sqlite3
 from contextlib import closing
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
+import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 from werkzeug.security import check_password_hash
 
 from database import db
@@ -18,16 +20,16 @@ _REAL_DB_MTIME_BEFORE = (
 
 def _insert_user(conn, name="Test User", email="user@example.com"):
     row = conn.execute(
-        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) "
+        "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s) "
         "RETURNING id",
         (name, email, "hash"),
     ).fetchone()
     return row["id"]
 
 
-def test_database_isolation_env_var_set_and_real_db_untouched():
-    assert "SPENDLY_DB" in os.environ
-    assert os.environ["SPENDLY_DB"] != str(_REAL_DB_PATH)
+def test_tests_use_spendly_test_and_real_db_untouched_ac1():
+    dbname = conninfo_to_dict(os.environ["DATABASE_URL"]).get("dbname")
+    assert dbname == "spendly_test"
 
     exists_after = _REAL_DB_PATH.exists()
     assert exists_after == _REAL_DB_EXISTED_BEFORE
@@ -35,80 +37,76 @@ def test_database_isolation_env_var_set_and_real_db_untouched():
         assert _REAL_DB_PATH.stat().st_mtime == _REAL_DB_MTIME_BEFORE
 
 
-def test_resolve_db_path_falls_back_to_project_root(monkeypatch, tmp_path):
-    monkeypatch.delenv("SPENDLY_DB", raising=False)
-    monkeypatch.chdir(tmp_path)
+def test_get_db_returns_dict_rows_in_autocommit_ac5():
+    with closing(db.get_db()) as conn:
+        assert conn.autocommit is True
 
-    expected = Path(__file__).resolve().parent.parent / "spendly.db"
-    assert Path(db._resolve_db_path()).resolve() == expected
-
-
-def test_get_db_returns_row_with_foreign_keys_on():
-    conn = db.get_db()
-    try:
-        fk_status = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-        assert fk_status == 1
-
-        conn.execute("CREATE TABLE t (col TEXT)")
-        conn.execute("INSERT INTO t (col) VALUES (?)", ("value",))
+        conn.execute("CREATE TEMP TABLE t (col TEXT)")
+        conn.execute("INSERT INTO t (col) VALUES (%s)", ("value",))
         row = conn.execute("SELECT col FROM t").fetchone()
+        assert isinstance(row, dict)
         assert row["col"] == "value"
-    finally:
-        conn.close()
+
+        with pytest.raises(psycopg.errors.DivisionByZero):
+            conn.execute("SELECT 1/0")
+        assert conn.execute("SELECT 1 AS one").fetchone()["one"] == 1
 
 
-def test_init_db_creates_tables_and_index():
+def test_init_db_creates_tables_and_indexes_ac6():
+    db.init_db()
     db.init_db()
 
     with closing(db.get_db()) as conn:
-        names = {
-            row["name"]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'index')"
-            )
-        }
+        for name in ("users", "expenses", "idx_expenses_user_date", "idx_users_email"):
+            found = conn.execute(
+                "SELECT to_regclass(%s) IS NOT NULL AS found", (name,)
+            ).fetchone()["found"]
+            assert found, name
 
-    assert "users" in names
-    assert "expenses" in names
-    assert "idx_expenses_user_date" in names
+        unique = conn.execute(
+            "SELECT indisunique FROM pg_index "
+            "WHERE indexrelid = 'idx_users_email'::regclass"
+        ).fetchone()["indisunique"]
+
+    assert unique is True
 
 
-def test_expense_with_missing_user_id_raises():
+def test_expense_with_missing_user_id_raises_ac7():
     db.init_db()
 
     with closing(db.get_db()) as conn:
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (999, 10.0, "Food", "2026-10-01"),
             )
 
 
-def test_expense_amount_and_category_constraints():
+def test_expense_amount_and_category_constraints_ac8():
     db.init_db()
 
     with closing(db.get_db()) as conn:
         user_id = _insert_user(conn)
 
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (user_id, 0, "Food", "2026-10-01"),
             )
 
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (user_id, -5, "Food", "2026-10-01"),
             )
 
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (user_id, 10.0, "Groceries", "2026-10-01"),
             )
 
@@ -120,64 +118,57 @@ def test_delete_user_cascades_to_expenses():
         user_id = _insert_user(conn)
         conn.execute(
             "INSERT INTO expenses (user_id, amount, category, date) "
-            "VALUES (?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s)",
             (user_id, 10.0, "Food", "2026-10-01"),
         )
 
-        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
         remaining = conn.execute(
-            "SELECT COUNT(*) AS n FROM expenses WHERE user_id = ?", (user_id,)
+            "SELECT COUNT(*) AS n FROM expenses WHERE user_id = %s", (user_id,)
         ).fetchone()["n"]
 
     assert remaining == 0
 
 
 @pytest.mark.parametrize("name", ["", "   ", "\t\n"])
-def test_blank_name_variants_raise(name):
+def test_blank_name_variants_raise_ac9(name):
     db.init_db()
 
     with closing(db.get_db()) as conn:
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
                 (name, f"blank-{len(name)}@example.com", "hash"),
             )
 
 
-def test_date_constraint_rejects_invalid_accepts_valid():
+def test_date_column_rejects_impossible_dates_ac10():
     db.init_db()
 
-    invalid_dates = [
-        "2026-02-30",
-        "2026-04-31",
-        "2026-13-01",
-        "20-10-2026",
-        "2026-1-5",
-        "2026-02-28 10:00",
-    ]
+    invalid_dates = ["2026-02-30", "2026-04-31", "2026-13-01"]
     valid_dates = ["2026-02-28", "2028-02-29"]
 
     with closing(db.get_db()) as conn:
         user_id = _insert_user(conn)
 
         for bad_date in invalid_dates:
-            with pytest.raises(sqlite3.IntegrityError):
+            with pytest.raises(psycopg.DataError):
                 conn.execute(
                     "INSERT INTO expenses (user_id, amount, category, date) "
-                    "VALUES (?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s)",
                     (user_id, 10.0, "Food", bad_date),
                 )
 
         for good_date in valid_dates:
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date) "
-                "VALUES (?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s)",
                 (user_id, 10.0, "Food", good_date),
             )
 
         count = conn.execute(
-            "SELECT COUNT(*) AS n FROM expenses WHERE user_id = ?", (user_id,)
+            "SELECT COUNT(*) AS n FROM expenses WHERE user_id = %s", (user_id,)
         ).fetchone()["n"]
 
     assert count == len(valid_dates)
@@ -248,7 +239,7 @@ def test_seed_db_is_idempotent():
         assert _counts(conn) == (1, 8)
 
 
-def test_seed_db_dates_and_categories():
+def test_seed_db_dates_and_categories_ac11():
     today = date(2026, 10, 20)
 
     db.init_db()
@@ -259,14 +250,7 @@ def test_seed_db_dates_and_categories():
 
     dates = {row["date"] for row in rows}
     assert dates == {
-        "2026-10-01",
-        "2026-10-03",
-        "2026-10-05",
-        "2026-10-08",
-        "2026-10-12",
-        "2026-10-15",
-        "2026-10-18",
-        "2026-10-22",
+        date(2026, 10, day) for day in (1, 3, 5, 8, 12, 15, 18, 22)
     }
 
     categories = {row["category"] for row in rows}
@@ -287,7 +271,7 @@ def test_demo_password_is_hashed_and_verifiable():
 
     with closing(db.get_db()) as conn:
         password_hash = conn.execute(
-            "SELECT password_hash FROM users WHERE email = ?",
+            "SELECT password_hash FROM users WHERE email = %s",
             ("demo@spendly.com",),
         ).fetchone()["password_hash"]
 
@@ -295,19 +279,25 @@ def test_demo_password_is_hashed_and_verifiable():
     assert check_password_hash(password_hash, "demo123")
 
 
-def test_duplicate_email_case_insensitive_raises():
+def test_email_lowercase_and_unique_ac12():
     db.init_db()
     db.seed_db(date(2026, 10, 20))
 
     with closing(db.get_db()) as conn:
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
                 ("Someone Else", "DEMO@SPENDLY.COM", "hash"),
             )
 
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
+                ("Someone Else", "demo@spendly.com", "hash"),
+            )
 
-def test_seed_db_rolls_back_on_bad_row(monkeypatch):
+
+def test_seed_db_rolls_back_on_bad_row_ac13(monkeypatch):
     today = date(2026, 10, 20)
     db.init_db()
 
@@ -318,7 +308,7 @@ def test_seed_db_rolls_back_on_bad_row(monkeypatch):
 
     monkeypatch.setattr(db, "_demo_expenses", lambda today: bad_rows)
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(psycopg.errors.CheckViolation):
         db.seed_db(today)
 
     with closing(db.get_db()) as conn:
@@ -330,11 +320,10 @@ def test_seed_db_noop_when_demo_user_exists_from_other_connection():
     db.init_db()
 
     with closing(db.get_db()) as conn:
-        with conn:
-            conn.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                ("Demo User", "demo@spendly.com", "preexisting-hash"),
-            )
+        conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
+            ("Demo User", "demo@spendly.com", "preexisting-hash"),
+        )
 
     db.seed_db(today)
 
@@ -342,27 +331,23 @@ def test_seed_db_noop_when_demo_user_exists_from_other_connection():
         assert _counts(conn) == (1, 0)
 
 
-def test_startup_skips_seed_in_production(monkeypatch, tmp_path):
+def test_startup_skips_seed_in_production_ac14(monkeypatch):
     import app
 
     monkeypatch.setenv("SPENDLY_ENV", "production")
-    monkeypatch.setenv("SPENDLY_DB", str(tmp_path / "prod.db"))
 
     app.startup()
 
     with closing(db.get_db()) as conn:
-        names = {
-            row["name"]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
+        for name in ("users", "expenses"):
+            found = conn.execute(
+                "SELECT to_regclass(%s) IS NOT NULL AS found", (name,)
+            ).fetchone()["found"]
+            assert found, name
         demo_user = conn.execute(
-            "SELECT 1 FROM users WHERE email = ?", ("demo@spendly.com",)
+            "SELECT 1 FROM users WHERE email = %s", ("demo@spendly.com",)
         ).fetchone()
 
-    assert "users" in names
-    assert "expenses" in names
     assert demo_user is None
 
 

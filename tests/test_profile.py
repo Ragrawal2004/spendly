@@ -42,7 +42,7 @@ def _add_expense(uid, amount, category, date, description=None):
     with closing(get_db()) as conn:
         row = conn.execute(
             "INSERT INTO expenses (user_id, amount, category, date, description) "
-            "VALUES (?, ?, ?, ?, ?) RETURNING id",
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
             (uid, amount, category, date, description),
         ).fetchone()
         return row["id"]
@@ -50,8 +50,7 @@ def _add_expense(uid, amount, category, date, description=None):
 
 def _set_created_at(uid, value):
     with closing(get_db()) as conn:
-        with conn:
-            conn.execute("UPDATE users SET created_at = ? WHERE id = ?", (value, uid))
+        conn.execute("UPDATE users SET created_at = %s WHERE id = %s", (value, uid))
 
 
 NAV_PROFILE_LINK = re.compile(
@@ -81,8 +80,8 @@ def test_summary_month_bounds_ac8(client):
 
     row = get_expense_summary(uid, "2026-10-01", "2026-11-01")
 
-    assert row["month_total"] == pytest.approx(20)
-    assert row["total"] == pytest.approx(40)
+    assert row["month_total"] == Decimal("20.00")
+    assert row["total"] == Decimal("40.00")
     assert row["count"] == 4
 
 
@@ -109,7 +108,7 @@ def test_recent_expenses_limit_and_order_ac11(client):
 
     rows = get_recent_expenses(uid)
 
-    assert [r["date"] for r in rows] == [f"2026-10-0{d}" for d in range(7, 2, -1)]
+    assert [r["date"] for r in rows] == [date(2026, 10, d) for d in range(7, 2, -1)]
 
 
 def test_recent_expenses_same_date_higher_id_first(client):
@@ -363,7 +362,7 @@ def test_profile_never_sends_hash_ac18(client):
     login_as(client, uid)
     with closing(get_db()) as conn:
         stored = conn.execute(
-            "SELECT password_hash FROM users WHERE id = ?", (uid,)
+            "SELECT password_hash FROM users WHERE id = %s", (uid,)
         ).fetchone()["password_hash"]
 
     body = client.get("/profile").get_data(as_text=True)
@@ -397,7 +396,7 @@ def test_login_lands_on_profile_ac21(client):
 
 def test_profile_member_since_ac24(client):
     uid = _make_user()
-    _set_created_at(uid, "2026-03-05 10:20:30")
+    _set_created_at(uid, "2026-03-05 10:20:30+00")
     login_as(client, uid)
 
     body = client.get("/profile").get_data(as_text=True)
