@@ -118,7 +118,7 @@ Specific constraints Claude must follow. Always include:
 - Use CSS variables — never hardcode hex values
 - All templates extend `base.html`
 - Emails are stripped and lowercased in application code
-  before saving or looking up (SQLite NOCASE is ASCII-only)
+  before saving or looking up (the database CHECK requires lowercase)
 - Login errors never reveal whether the email or the
   password was wrong
 - Secrets such as the Flask secret key come from environment
@@ -137,9 +137,8 @@ logged-out access to protected pages, repeated submits.
 ## Acceptance criteria and tests
 Numbered AC-1, AC-2, and so on. Each is one
 Given / When / Then and maps to exactly one automated test
-in `tests/`. Tests use temporary databases through the
-`SPENDLY_DB` environment variable and never touch the real
-`spendly.db`.
+in `tests/`. Tests use the `spendly_test` database (reset
+before every test) and never touch `spendly` or `spendly.db`.
 
 ## Open questions
 Decisions the user must make before the design stage. List

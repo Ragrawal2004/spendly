@@ -1,10 +1,10 @@
-import math
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
 
+import psycopg
 from flask import (
     Flask,
     g,
@@ -96,10 +96,18 @@ def month_bounds(today):
 
 
 def member_since(created_at):
-    try:
-        return datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%B %Y")
-    except (TypeError, ValueError):
-        return None
+    if isinstance(created_at, datetime):
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        else:
+            created_at = created_at.astimezone(timezone.utc)
+        return created_at.strftime("%B %Y")
+    if isinstance(created_at, str):
+        try:
+            return datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%B %Y")
+        except ValueError:
+            return None
+    return None
 
 
 @app.template_filter("format_amount")
@@ -107,10 +115,15 @@ def format_amount(value):
     return f"₹{value:,.2f}"
 
 
+def _to_decimal(x):
+    return x if isinstance(x, Decimal) else Decimal(str(x))
+
+
 def category_share(total, overall):
     if not overall:
         return 0
-    return math.floor(total / overall * 100 + 0.5)
+    t, o = _to_decimal(total), _to_decimal(overall)
+    return int((t * 100 / o).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def login_required(view):
@@ -182,7 +195,7 @@ def register():
     if error is None:
         try:
             create_user(name, email, generate_password_hash(password))
-        except sqlite3.IntegrityError:
+        except psycopg.errors.UniqueViolation:
             error = "An account with this email already exists."
     if error:
         return render_template("register.html", error=error, name=name, email=email), 400

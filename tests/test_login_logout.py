@@ -108,12 +108,11 @@ def test_ac23_production_without_key_raises(env):
     assert "SPENDLY_SECRET_KEY" in str(exc.value)
 
 
-def test_ac23_production_import_without_key_fails_before_db_work(tmp_path):
-    db_path = tmp_path / "fresh-dir" / "spendly.db"
+def test_ac23_production_import_without_key_fails_before_db_work():
     env = os.environ.copy()
     env.pop("SPENDLY_SECRET_KEY", None)
     env["SPENDLY_ENV"] = "production"
-    env["SPENDLY_DB"] = str(db_path)
+    env["DATABASE_URL"] = "postgresql://spendly@db.invalid/nowhere"
 
     result = subprocess.run(
         [sys.executable, "-c", "import app"],
@@ -121,13 +120,37 @@ def test_ac23_production_import_without_key_fails_before_db_work(tmp_path):
         env=env,
         capture_output=True,
         text=True,
+        timeout=60,
     )
 
     assert result.returncode != 0
     assert "RuntimeError" in result.stderr
     assert "SPENDLY_SECRET_KEY" in result.stderr
-    assert not db_path.exists()
-    assert not db_path.parent.exists()
+    assert "psycopg" not in result.stderr
+    assert "OperationalError" not in result.stderr
+
+
+def test_import_without_database_url_fails_ac30():
+    from database.db import _MISSING_URL_MESSAGE
+
+    env = os.environ.copy()
+    env.pop("DATABASE_URL", None)
+    env["SPENDLY_ENV"] = "production"
+    env["SPENDLY_SECRET_KEY"] = "test-only-secret-key"
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import app"],
+        cwd=_REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "RuntimeError" in result.stderr
+    assert _MISSING_URL_MESSAGE in result.stderr
+    assert "OperationalError" not in result.stderr
 
 
 def test_ac30_cookie_secure_true_in_production():
@@ -698,3 +721,23 @@ def test_ac17_user_name_is_escaped_in_nav(client):
 
     assert "&lt;b&gt;x&lt;/b&gt;" in body
     assert "<b>x</b>" not in body
+
+
+def test_ac31_session_user_id_is_int_after_register_and_login(client):
+    init_db()
+    client.post(
+        "/register",
+        data={
+            "name": "Rahul Sharma",
+            "email": "rahul@example.com",
+            "password": "password123",
+            "confirm_password": "password123",
+        },
+    )
+    _post_login(client, "rahul@example.com", "password123")
+
+    with client.session_transaction() as sess:
+        user_id = sess["user_id"]
+    assert isinstance(user_id, int)
+    assert user_id == get_user_by_email("rahul@example.com")["id"]
+    assert client.get("/profile").status_code == 200

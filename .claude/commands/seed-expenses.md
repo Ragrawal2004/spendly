@@ -43,9 +43,9 @@ Write and run a Python script from the project root (use .venv/bin/python, becau
    - Other: 50–1000
 3. Picks categories with weights of about Food 35, Transport 20, Shopping 15, Bills 12, Entertainment 8, Health 6, Other 4.
 4. Rounds every amount to 2 decimals.
-5. Gets its connection from get_db() in db.py. Do not hardcode the database filename.
-6. Uses parameterised queries only, with ? placeholders and no string formatting in SQL.
-7. Inserts all expenses in a single transaction using `with closing(get_db()) as conn:` and `with conn:`, so everything rolls back if any insert fails.
+5. Gets its connection from get_db() in db.py, which reads DATABASE_URL. Never hardcode a URL or password and never print them.
+6. Uses parameterised queries only, with %s placeholders and no string formatting in SQL.
+7. Inserts all expenses in a single transaction using `with closing(get_db()) as conn, conn.transaction():`, so everything rolls back if any insert fails.
 
 ## Step 4 — Confirm
 

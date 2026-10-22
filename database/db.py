@@ -1,119 +1,128 @@
 import os
-import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timezone
 
+import psycopg
+from psycopg.rows import dict_row
 from werkzeug.security import generate_password_hash
 
-_SCHEMA = """
+_SCHEMA = (
+    r"""
 CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL
-                  CHECK (length(trim(name, ' ' || char(9) || char(10) || char(13))) > 0),
-    email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name          TEXT NOT NULL CHECK (btrim(name, E' \t\n\r') <> ''),
+    email         TEXT NOT NULL
+                  CONSTRAINT users_email_lowercase CHECK (email = lower(email)),
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+""",
+    """
 CREATE TABLE IF NOT EXISTS expenses (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    amount      REAL NOT NULL CHECK (amount > 0),
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     category    TEXT NOT NULL CHECK (category IN
                   ('Food','Transport','Bills','Health','Entertainment','Shopping','Other')),
-    date        TEXT NOT NULL CHECK (date(date) IS NOT NULL AND date(date) = date),
+    date        DATE NOT NULL,
     description TEXT,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email)",
+    "CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses (user_id, date)",
+)
 
-CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, date);
-"""
+
+_MISSING_URL_MESSAGE = (
+    "DATABASE_URL must be set, "
+    "e.g. DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/spendly"
+)
 
 
-def _resolve_db_path() -> str:
-    return os.environ.get("SPENDLY_DB") or os.path.join(
-        os.path.dirname(__file__), "..", "spendly.db"
+def resolve_database_url(env) -> str:
+    url = env.get("DATABASE_URL")
+    if url:
+        return url
+    raise RuntimeError(_MISSING_URL_MESSAGE)
+
+
+def get_db() -> psycopg.Connection:
+    return psycopg.connect(
+        resolve_database_url(os.environ), row_factory=dict_row, autocommit=True
     )
 
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(_resolve_db_path())
-    conn.row_factory = sqlite3.Row
-    conn.isolation_level = None
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
 def init_db() -> None:
-    with closing(get_db()) as conn:
-        with conn:
-            conn.executescript(_SCHEMA)
+    with closing(get_db()) as conn, conn.transaction():
+        for statement in _SCHEMA:
+            conn.execute(statement)
 
 
 def create_user(name: str, email: str, password_hash: str) -> int:
     with closing(get_db()) as conn:
-        with conn:
-            cur = conn.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                (name, email, password_hash),
-            )
-            return cur.lastrowid
+        row = conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s) "
+            "RETURNING id",
+            (name, email, password_hash),
+        ).fetchone()
+        return row["id"]
 
 
-def get_user_by_email(email: str) -> sqlite3.Row | None:
+def get_user_by_email(email: str) -> dict | None:
     with closing(get_db()) as conn:
         return conn.execute(
-            "SELECT id, name, email, password_hash FROM users WHERE email = ?",
+            "SELECT id, name, email, password_hash FROM users WHERE email = %s",
             (email,),
         ).fetchone()
 
 
-def get_user_by_id(user_id: int) -> sqlite3.Row | None:
+def get_user_by_id(user_id: int) -> dict | None:
     with closing(get_db()) as conn:
         return conn.execute(
-            "SELECT id, name, email FROM users WHERE id = ?",
+            "SELECT id, name, email FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
 
 
-def get_user_profile(user_id: int) -> sqlite3.Row | None:
+def get_user_profile(user_id: int) -> dict | None:
     with closing(get_db()) as conn:
         return conn.execute(
-            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            "SELECT id, name, email, created_at FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
 
 
 def get_expense_summary(
     user_id: int, month_start: str, next_month_start: str
-) -> sqlite3.Row:
+) -> dict:
     with closing(get_db()) as conn:
         return conn.execute(
             "SELECT COALESCE(SUM(amount), 0) AS total, "
             "COUNT(*) AS count, "
-            "COALESCE(SUM(CASE WHEN date >= ? AND date < ? THEN amount END), 0) "
-            "AS month_total "
-            "FROM expenses WHERE user_id = ?",
+            "COALESCE(SUM(CASE WHEN date >= %s::date AND date < %s::date "
+            "THEN amount END), 0) AS month_total "
+            "FROM expenses WHERE user_id = %s",
             (month_start, next_month_start, user_id),
         ).fetchone()
 
 
-def get_category_totals(user_id: int) -> list[sqlite3.Row]:
+def get_category_totals(user_id: int) -> list[dict]:
     with closing(get_db()) as conn:
         return conn.execute(
             "SELECT category, SUM(amount) AS total, COUNT(*) AS count "
-            "FROM expenses WHERE user_id = ? "
+            "FROM expenses WHERE user_id = %s "
             "GROUP BY category ORDER BY total DESC, category ASC",
             (user_id,),
         ).fetchall()
 
 
-def get_recent_expenses(user_id: int, limit: int = 5) -> list[sqlite3.Row]:
+def get_recent_expenses(user_id: int, limit: int = 5) -> list[dict]:
     with closing(get_db()) as conn:
         return conn.execute(
             "SELECT id, amount, category, date, description "
-            "FROM expenses WHERE user_id = ? "
-            "ORDER BY date DESC, id DESC LIMIT ?",
+            "FROM expenses WHERE user_id = %s "
+            "ORDER BY date DESC, id DESC LIMIT %s",
             (user_id, limit),
         ).fetchall()
 
@@ -139,32 +148,20 @@ def _demo_expenses(today: date) -> list[tuple[str, float, str, str]]:
 
 def seed_db(today: date | None = None) -> None:
     today = today or datetime.now(timezone.utc).date()
-    conn = get_db()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        exists = conn.execute(
-            "SELECT 1 FROM users WHERE email = ?", ("demo@spendly.com",)
-        ).fetchone()
-        if exists:
-            conn.commit()
-            return
+    password_hash = generate_password_hash("demo123")
 
-        password_hash = generate_password_hash("demo123")
-        cur = conn.execute(
-            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+    with closing(get_db()) as conn, conn.transaction():
+        row = conn.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s) "
+            "ON CONFLICT (email) DO NOTHING RETURNING id",
             ("Demo User", "demo@spendly.com", password_hash),
-        )
-        user_id = cur.lastrowid
+        ).fetchone()
+        if row is None:
+            return
 
         for category, amount, date_str, description in _demo_expenses(today):
             conn.execute(
                 "INSERT INTO expenses (user_id, amount, category, date, description) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (user_id, round(amount, 2), category, date_str, description),
+                "VALUES (%s, %s, %s, %s, %s)",
+                (row["id"], round(amount, 2), category, date_str, description),
             )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()

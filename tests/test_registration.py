@@ -1,5 +1,4 @@
-import sqlite3
-
+import psycopg
 import pytest
 from werkzeug.security import check_password_hash
 
@@ -124,7 +123,7 @@ def test_ac14_double_submit(client):
 
 def test_ac15_integrity_error(client, monkeypatch):
     def boom(*a, **k):
-        raise sqlite3.IntegrityError("x")
+        raise psycopg.errors.UniqueViolation("x")
 
     monkeypatch.setattr(app_module, "create_user", boom)
     r = post(client)
