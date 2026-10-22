@@ -107,7 +107,7 @@ No new dependencies.
 - Logged-out access: both `GET` and `POST` redirect to `/login` and write nothing
 - Session holding a non-int or unknown `user_id`: the existing hook clears it and `login_required` redirects to `/login`
 - Repeated submits: each `POST` creates a separate row (no dedupe); the 303 redirect means refreshing `/profile` afterwards does not resubmit
-- Very large form fields (e.g. a 1 MB amount or description) are rejected with 400 by the length rules, never stored
+- Very large form fields: a request body under 500 kB gets a 400 from the length and regex rules; a larger body (e.g. a 1 MB amount or description) gets Flask/Werkzeug's 413 (`max_form_memory_size` default of 500,000 bytes) before the view runs. Nothing is stored in either case. Documentation only; no acceptance criterion covers this
 - Money stays exact: adding `0.10` and `0.20` makes the profile total `₹0.30`
 
 ## Acceptance criteria and tests
