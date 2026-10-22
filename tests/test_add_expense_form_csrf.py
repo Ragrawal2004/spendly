@@ -637,3 +637,30 @@ def test_login_register_no_store_ac35(client):
         resp = c.get(url)
         assert resp.status_code == 200
         assert resp.headers.get("Cache-Control") == "no-store", url
+
+
+# --- R4: Cf characters are stored and isolated with <bdi> (AC-33) ---
+
+
+def test_cf_descriptions_stored_in_bdi_ac33(client):
+    uid = _make_user()
+    login_as(client, uid)
+    descriptions = ("‮abc", "a​b", "क्‌ष")
+
+    for description in descriptions:
+        resp = post_form(client, "/expenses/add", _valid_form(description=description))
+        assert resp.status_code == 303
+
+    with closing(get_db()) as conn:
+        for description in descriptions:
+            row = conn.execute(
+                "SELECT description FROM expenses WHERE user_id = %s AND description = %s",
+                (uid, description),
+            ).fetchone()
+            assert row is not None, "description was not stored unchanged"
+
+    resp = client.get("/profile")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for description in descriptions:
+        assert f"<bdi>{description}</bdi>" in body

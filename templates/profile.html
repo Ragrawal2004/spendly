@@ -64,7 +64,7 @@
                         <tr>
                             <td data-label="Date">{{ e["date"] }}</td>
                             <td data-label="Category">{{ e["category"] }}</td>
-                            <td data-label="Description">{{ e["description"] or "—" }}</td>
+                            <td data-label="Description"><bdi>{{ e["description"] or "—" }}</bdi></td>
                             <td data-label="Amount">{{ e["amount"]|format_amount }}</td>
                         </tr>
                         {% endfor %}
