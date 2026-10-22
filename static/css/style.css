@@ -116,9 +116,9 @@ a { color: inherit; text-decoration: none; }
 
 .nav-links .nav-user:hover { text-decoration: underline; }
 
-.nav-links .nav-add { color: var(--accent); font-weight: 600; }
+.nav-links .nav-add { color: var(--accent); font-weight: 500; }
 
-.nav-links .nav-add:hover { color: var(--accent-bright); }
+.nav-links .nav-add:hover { color: var(--ink); }
 
 .nav-signout-form { display: inline; margin: 0; }
 
