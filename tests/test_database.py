@@ -394,3 +394,48 @@ def test_resolve_database_url_message_is_fixed_ac33():
         "e.g. DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/spendly"
     )
     assert "s3cret" not in str(excinfo.value)
+
+
+def test_garbage_created_at_rejected_ac22():
+    db.init_db()
+    with closing(db.get_db()) as conn:
+        uid = _insert_user(conn)
+
+        with pytest.raises(psycopg.errors.InvalidDatetimeFormat):
+            conn.execute(
+                "UPDATE users SET created_at = %s WHERE id = %s", ("garbage", uid)
+            )
+
+
+def test_amount_precision_and_range_ac23():
+    db.init_db()
+    with closing(db.get_db()) as conn:
+        uid = _insert_user(conn)
+        insert = (
+            "INSERT INTO expenses (user_id, amount, category, date) "
+            "VALUES (%s, %s, 'Food', '2026-10-01')"
+        )
+
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(insert, (uid, Decimal("0.004")))
+
+        conn.execute(insert, (uid, Decimal("12.345")))
+        stored = conn.execute("SELECT amount FROM expenses").fetchone()["amount"]
+        assert stored == Decimal("12.35")
+        assert isinstance(stored, Decimal)
+
+        with pytest.raises(psycopg.errors.NumericValueOutOfRange):
+            conn.execute(insert, (uid, Decimal("10000000000")))
+
+
+def test_seed_db_twice_exact_totals_ac32():
+    today = date(2026, 10, 20)
+
+    db.init_db()
+    db.seed_db(today)
+    db.seed_db(today)
+
+    with closing(db.get_db()) as conn:
+        assert _counts(conn) == (1, 8)
+        total = conn.execute("SELECT SUM(amount) AS s FROM expenses").fetchone()["s"]
+        assert total == Decimal("6498.00")

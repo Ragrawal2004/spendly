@@ -535,3 +535,60 @@ def test_profile_demo_user_ac19(client):
     assert len(re.findall(r"<tr\b", tbody)) == 5
     assert format_amount(sum(row[2] for row in db._DEMO_EXPENSES_TABLE)) in body
     assert f"{len(db._DEMO_EXPENSES_TABLE)} expenses" in body
+
+
+# --- PostgreSQL types (AC-24, 25, 34) ---
+
+
+def test_profile_queries_return_native_types_ac24(client):
+    uid = _make_user()
+    today = datetime.now(timezone.utc).date()
+    _add_expense(uid, "100.00", "Food", today.isoformat())
+    _add_expense(uid, "250.50", "Bills", "2020-01-15")
+    _add_expense(uid, "49.50", "Food", "2020-01-16")
+    month_start, next_month_start = month_bounds(today)
+
+    summary = get_expense_summary(uid, month_start, next_month_start)
+    categories = get_category_totals(uid)
+    recent = get_recent_expenses(uid)
+
+    assert isinstance(summary["total"], Decimal)
+    assert isinstance(summary["month_total"], Decimal)
+    assert isinstance(summary["count"], int)
+    assert summary["total"] == Decimal("400.00")
+    assert summary["month_total"] == Decimal("100.00")
+    assert categories
+    for row in categories:
+        assert isinstance(row["total"], Decimal)
+        assert isinstance(row["count"], int)
+    assert recent
+    for row in recent:
+        assert isinstance(row["amount"], Decimal)
+        assert isinstance(row["date"], date)
+        assert not isinstance(row["date"], datetime)
+    created_at = get_user_profile(uid)["created_at"]
+    assert isinstance(created_at, datetime)
+    assert created_at.tzinfo is not None
+
+
+def test_summary_empty_user_types_ac25(client):
+    uid = _make_user()
+
+    row = get_expense_summary(uid, "2026-10-01", "2026-11-01")
+
+    assert isinstance(row["total"], Decimal)
+    assert isinstance(row["month_total"], Decimal)
+    assert row["total"] == 0
+    assert row["month_total"] == 0
+    assert isinstance(row["count"], int)
+    assert row["count"] == 0
+
+
+def test_profile_huge_session_user_id_redirects_ac34(client):
+    _make_user()
+    login_as(client, 10**30)
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/login")
