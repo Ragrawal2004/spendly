@@ -3,6 +3,7 @@ import secrets
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
+from werkzeug.datastructures import MultiDict
 from werkzeug.security import generate_password_hash
 
 # Imported at collection time, so app's startup() demo seed runs before isolated_db drops the tables.
@@ -664,3 +665,40 @@ def test_cf_descriptions_stored_in_bdi_ac33(client):
     body = resp.get_data(as_text=True)
     for description in descriptions:
         assert f"<bdi>{description}</bdi>" in body
+
+
+# --- Spec edge cases with no AC: duplicate fields, token outside the form body ---
+
+
+def test_duplicate_token_fields_first_wins(client):
+    uid = _make_user()
+    login_as(client, uid)
+    token = csrf_token(client)
+    wrong = secrets.token_urlsafe(32)
+    fields = list(_valid_form().items())
+
+    resp = client.post(
+        "/expenses/add", data=MultiDict(fields + [("csrf_token", wrong), ("csrf_token", token)])
+    )
+    _assert_csrf_400(resp)
+    assert _rows() == []
+
+    resp = client.post(
+        "/expenses/add", data=MultiDict(fields + [("csrf_token", token), ("csrf_token", wrong)])
+    )
+    assert resp.status_code == 303
+    assert len(_rows(uid)) == 1
+
+
+def test_token_outside_form_body_ignored(client):
+    uid = _make_user()
+    login_as(client, uid)
+    token = csrf_token(client)
+
+    resp = client.post("/expenses/add", query_string={"csrf_token": token}, data=_valid_form())
+    _assert_csrf_400(resp)
+    assert _rows() == []
+
+    resp = client.post("/expenses/add", headers={"X-CSRFToken": token}, data=_valid_form())
+    _assert_csrf_400(resp)
+    assert _rows() == []
