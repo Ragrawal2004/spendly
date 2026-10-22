@@ -395,3 +395,70 @@ def test_description_control_chars_ac27(client):
     rows = _rows(uid)
     assert len(rows) == 1
     assert rows[0]["description"] == "Lunch"
+
+
+# --- profile and end to end ---
+
+
+def test_profile_totals_exact_ac16(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post(
+        "/expenses/add", data=_valid_form(amount="0.10", category="Food", description="Tea")
+    )
+    assert resp.status_code == 303
+    resp = client.post(
+        "/expenses/add", data=_valid_form(amount="0.20", category="Transport", description="Bus")
+    )
+    assert resp.status_code == 303
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "₹0.30" in body
+    assert "2 expenses" in body
+    assert "Food" in body
+    assert "Transport" in body
+    assert "Tea" in body
+    assert "Bus" in body
+
+
+def test_description_escaped_on_profile_ac17(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.post(
+        "/expenses/add", data=_valid_form(description="<script>alert(1)</script>")
+    )
+    assert resp.status_code == 303
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+    assert "<script>alert(1)</script>" not in body
+
+
+def test_end_to_end_login_add_profile_ac26(client):
+    _make_user()
+
+    resp = client.post(
+        "/login", data={"email": "rahul@example.com", "password": "password123"}
+    )
+    assert resp.status_code == 302
+
+    resp = client.post(
+        "/expenses/add",
+        data=_valid_form(amount="499.99", category="Shopping", description="Headphones"),
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Headphones" in body
+    assert "Shopping" in body
+    assert "₹499.99" in body
+    assert "1 expense" in body
