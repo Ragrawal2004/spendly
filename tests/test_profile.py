@@ -1,6 +1,7 @@
 import re
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -175,6 +176,43 @@ def test_category_share():
     assert category_share(400, 600) == 67
     assert category_share(12.5, 100) == 13
     assert category_share(0, 0) == 0
+
+
+def test_format_amount_decimal_ac26():
+    assert format_amount(Decimal("12345678.90")) == "₹12,345,678.90"
+    assert format_amount(Decimal("0")) == "₹0.00"
+    assert format_amount(Decimal("0.30")) == "₹0.30"
+    assert format_amount(Decimal("400.00")) == "₹400.00"
+
+
+def test_category_share_decimal_ac27():
+    cases = [
+        ((Decimal("400.00"), Decimal("600.00")), 67),
+        ((Decimal("12.50"), Decimal("100.00")), 13),
+        ((Decimal("0"), Decimal("0")), 0),
+        ((Decimal("1.00"), Decimal("3.00")), 33),
+        ((Decimal("5.00"), 10), 50),
+    ]
+    for args, expected in cases:
+        result = category_share(*args)
+        assert result == expected
+        assert isinstance(result, int)
+
+
+def test_member_since_datetime_ac28():
+    aware_utc = datetime(2026, 3, 5, 10, 20, 30, tzinfo=timezone.utc)
+    naive = datetime(2026, 3, 5, 10, 20, 30)
+    # 2026-04-01 04:00 at +05:30 is 2026-03-31 22:30 UTC
+    offset = datetime(
+        2026, 4, 1, 4, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))
+    )
+    for value in (aware_utc, naive, offset):
+        assert member_since(value) == "March 2026"
+
+
+@pytest.mark.parametrize("value", [date(2026, 3, 5), 12345])
+def test_member_since_other_types_ac29(value):
+    assert member_since(value) is None
 
 
 # --- login_required (Task 4; AC-1, 3, 4, 5, 22, 23) ---
