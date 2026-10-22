@@ -1,0 +1,105 @@
+- generic [active] [ref=f10e1]:
+  - navigation [ref=f10e2]:
+    - generic [ref=f10e3]:
+      - link "◈ Spendly" [ref=f10e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f10e5]: ◈
+        - generic [ref=f10e6]: Spendly
+      - generic [ref=f10e7]:
+        - link "Demo User" [ref=f10e8] [cursor=pointer]:
+          - /url: /profile
+        - button "Sign out" [ref=f10e10] [cursor=pointer]
+  - main [ref=f10e11]:
+    - generic [ref=f10e12]:
+      - generic [ref=f10e13]:
+        - generic [ref=f10e14]:
+          - heading "Demo User" [level=1] [ref=f10e15]
+          - paragraph [ref=f10e16]: demo@spendly.com
+          - paragraph [ref=f10e17]: Member since October 2026
+        - generic [ref=f10e18]:
+          - generic [ref=f10e19]:
+            - generic [ref=f10e20]: Total spent
+            - generic [ref=f10e21]: ₹6,621.45
+          - generic [ref=f10e22]:
+            - generic [ref=f10e23]: This month
+            - generic [ref=f10e24]: ₹6,621.45
+          - generic [ref=f10e25]:
+            - generic [ref=f10e26]: Expenses
+            - generic [ref=f10e27]: 9 expenses
+        - heading "By category" [level=2] [ref=f10e28]
+        - generic [ref=f10e29]:
+          - generic [ref=f10e30]:
+            - generic [ref=f10e31]: Shopping
+            - generic [ref=f10e32]: ₹2,299.00
+            - generic [ref=f10e33]: 35%
+          - generic [ref=f10e34]:
+            - generic [ref=f10e35]: Bills
+            - generic [ref=f10e36]: ₹1,800.00
+            - generic [ref=f10e37]: 27%
+          - generic [ref=f10e38]:
+            - generic [ref=f10e39]: Food
+            - generic [ref=f10e40]: ₹953.45
+            - generic [ref=f10e41]: 14%
+          - generic [ref=f10e42]:
+            - generic [ref=f10e43]: Health
+            - generic [ref=f10e44]: ₹650.00
+            - generic [ref=f10e45]: 10%
+          - generic [ref=f10e46]:
+            - generic [ref=f10e47]: Entertainment
+            - generic [ref=f10e48]: ₹499.00
+            - generic [ref=f10e49]: 8%
+          - generic [ref=f10e50]:
+            - generic [ref=f10e51]: Other
+            - generic [ref=f10e52]: ₹300.00
+            - generic [ref=f10e53]: 5%
+          - generic [ref=f10e54]:
+            - generic [ref=f10e55]: Transport
+            - generic [ref=f10e56]: ₹120.00
+            - generic [ref=f10e57]: 2%
+      - generic [ref=f10e59]:
+        - generic [ref=f10e60]:
+          - heading "Recent expenses" [level=2] [ref=f10e61]
+          - link "Add expense" [ref=f10e62] [cursor=pointer]:
+            - /url: /expenses/add
+        - table [ref=f10e64]:
+          - rowgroup [ref=f10e65]:
+            - row [ref=f10e66]:
+              - columnheader "Date" [ref=f10e67]
+              - columnheader "Category" [ref=f10e68]
+              - columnheader "Description" [ref=f10e69]
+              - columnheader "Amount" [ref=f10e70]
+          - rowgroup [ref=f10e71]:
+            - row [ref=f10e72]:
+              - cell "2026-10-22" [ref=f10e73]
+              - cell "Food" [ref=f10e74]
+              - cell "Playwright check" [ref=f10e75]
+              - cell "₹123.45" [ref=f10e76]
+            - row [ref=f10e77]:
+              - cell "2026-10-22" [ref=f10e78]
+              - cell "Food" [ref=f10e79]
+              - cell "Dinner with friends" [ref=f10e80]
+              - cell "₹380.00" [ref=f10e81]
+            - row [ref=f10e82]:
+              - cell "2026-10-18" [ref=f10e83]
+              - cell "Other" [ref=f10e84]
+              - cell "Gift" [ref=f10e85]
+              - cell "₹300.00" [ref=f10e86]
+            - row [ref=f10e87]:
+              - cell "2026-10-15" [ref=f10e88]
+              - cell "Shopping" [ref=f10e89]
+              - cell "Headphones" [ref=f10e90]
+              - cell "₹2,299.00" [ref=f10e91]
+            - row [ref=f10e92]:
+              - cell "2026-10-12" [ref=f10e93]
+              - cell "Entertainment" [ref=f10e94]
+              - cell "Streaming subscription" [ref=f10e95]
+              - cell "₹499.00" [ref=f10e96]
+  - contentinfo [ref=f10e97]:
+    - generic [ref=f10e98]:
+      - generic [ref=f10e99]: ◈
+      - generic [ref=f10e100]: Spendly
+      - paragraph [ref=f10e101]: Track every rupee. Own your finances.
+      - link "Terms and Conditions" [ref=f10e102] [cursor=pointer]:
+        - /url: /terms
+      - link "Privacy Policy" [ref=f10e103] [cursor=pointer]:
+        - /url: /privacy

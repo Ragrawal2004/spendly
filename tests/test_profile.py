@@ -26,6 +26,7 @@ from database.db import (
     get_user_profile,
     init_db,
 )
+from helpers import csrf_token, post_form
 
 
 def _make_user(name="Rahul Sharma", email="rahul@example.com"):
@@ -36,6 +37,7 @@ def _make_user(name="Rahul Sharma", email="rahul@example.com"):
 def login_as(client, uid):
     with client.session_transaction() as sess:
         sess["user_id"] = uid
+    csrf_token(client)
 
 
 def _add_expense(uid, amount, category, date, description=None):
@@ -262,7 +264,7 @@ def test_profile_rejects_non_get_ac5(client, method):
 def test_profile_after_logout_redirects_ac22(client):
     uid = _make_user()
     login_as(client, uid)
-    client.post("/logout")
+    post_form(client, "/logout")
 
     resp = client.get("/profile")
 
@@ -384,7 +386,8 @@ def test_profile_nav_and_add_expense_links_ac20(client):
 def test_login_lands_on_profile_ac21(client):
     _make_user()
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/login",
         data={"email": "rahul@example.com", "password": "password123"},
         follow_redirects=True,

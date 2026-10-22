@@ -4,6 +4,7 @@ from werkzeug.security import check_password_hash
 
 import app as app_module
 from database.db import get_db
+from helpers import post_form
 
 VALID = {
     "name": "Rahul Sharma",
@@ -19,7 +20,7 @@ def post(client, **over):
     data = {**VALID, **over}
     if "confirm_password" not in over:
         data["confirm_password"] = data["password"]
-    return client.post("/register", data={k: v for k, v in data.items() if v is not None})
+    return post_form(client, "/register", data={k: v for k, v in data.items() if v is not None})
 
 
 def rows():

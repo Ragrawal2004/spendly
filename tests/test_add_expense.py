@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 import app as app_module
 from app import clean_expense, validate_expense
 from database.db import create_expense, create_user, get_db, init_db
+from helpers import csrf_token, post_form
 
 
 AMOUNT_FORMAT_ERROR = "Enter a valid amount, like 250 or 99.50."
@@ -53,6 +54,7 @@ def _make_user(name="Rahul Sharma", email="rahul@example.com"):
 def login_as(client, uid):
     with client.session_transaction() as sess:
         sess["user_id"] = uid
+    csrf_token(client)
 
 
 def _rows(uid=None):
@@ -211,7 +213,7 @@ def test_create_expense_constraints_ac24(client):
 def test_post_signed_out_redirects_ac1(client):
     _make_user()
 
-    resp = client.post("/expenses/add", data=_valid_form())
+    resp = post_form(client, "/expenses/add", data=_valid_form())
 
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/login"
@@ -222,7 +224,7 @@ def test_post_valid_creates_row_ac2(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post("/expenses/add", data=_valid_form())
+    resp = post_form(client, "/expenses/add", data=_valid_form())
 
     assert resp.status_code == 303
     assert resp.headers["Location"] == "/profile"
@@ -238,7 +240,8 @@ def test_post_strips_whitespace_ac3(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add",
         data={
             "amount": "  1234.5 ",
@@ -262,7 +265,7 @@ def test_blank_description_stored_null_ac4(client):
     login_as(client, uid)
 
     for description in ("", "   "):
-        resp = client.post("/expenses/add", data=_valid_form(description=description))
+        resp = post_form(client, "/expenses/add", data=_valid_form(description=description))
         assert resp.status_code == 303
 
     rows = _rows(uid)
@@ -274,7 +277,7 @@ def test_invalid_post_plain_text_400_ac12(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post("/expenses/add", data=_valid_form(amount="abc"))
+    resp = post_form(client, "/expenses/add", data=_valid_form(amount="abc"))
 
     assert resp.status_code == 400
     assert resp.headers["Content-Type"].startswith("text/plain")
@@ -286,7 +289,8 @@ def test_error_does_not_echo_input_ac13(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add",
         data=_valid_form(amount="<b>1</b>", description="<script>alert(1)</script>"),
     )
@@ -303,7 +307,7 @@ def test_form_user_id_ignored_ac14(client):
     b = _make_user(name="Priya Patel", email="priya@example.com")
     login_as(client, a)
 
-    resp = client.post("/expenses/add", data=_valid_form(user_id=str(b)))
+    resp = post_form(client, "/expenses/add", data=_valid_form(user_id=str(b)))
 
     assert resp.status_code == 303
     assert len(_rows(a)) == 1
@@ -315,7 +319,7 @@ def test_double_submit_two_rows_ac15(client):
     login_as(client, uid)
 
     for _ in range(2):
-        resp = client.post("/expenses/add", data=_valid_form())
+        resp = post_form(client, "/expenses/add", data=_valid_form())
         assert resp.status_code == 303
 
     assert len(_rows(uid)) == 2
@@ -347,7 +351,7 @@ def test_unknown_session_user_ac20(client):
     _make_user()
     login_as(client, 9999)
 
-    resp = client.post("/expenses/add", data=_valid_form())
+    resp = post_form(client, "/expenses/add", data=_valid_form())
 
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/login"
@@ -364,7 +368,7 @@ def test_foreign_key_violation_clears_session_ac21(client, monkeypatch):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post("/expenses/add", data=_valid_form())
+    resp = post_form(client, "/expenses/add", data=_valid_form())
 
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/login"
@@ -377,11 +381,11 @@ def test_no_set_cookie_ac22(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post("/expenses/add", data=_valid_form())
+    resp = post_form(client, "/expenses/add", data=_valid_form())
     assert resp.status_code == 303
     assert "Set-Cookie" not in resp.headers
 
-    resp = client.post("/expenses/add", data=_valid_form(amount="abc"))
+    resp = post_form(client, "/expenses/add", data=_valid_form(amount="abc"))
     assert resp.status_code == 400
     assert "Set-Cookie" not in resp.headers
 
@@ -391,12 +395,12 @@ def test_description_control_chars_ac27(client):
     login_as(client, uid)
 
     for description in ("Lunch\x00", "Line1\nLine2", "a\rb", "a\tb", "a\x7fb", "a\x85b"):
-        resp = client.post("/expenses/add", data=_valid_form(description=description))
+        resp = post_form(client, "/expenses/add", data=_valid_form(description=description))
         assert resp.status_code == 400, repr(description)
         assert resp.get_data(as_text=True) == DESCRIPTION_CONTROL_ERROR
     assert _rows() == []
 
-    resp = client.post("/expenses/add", data=_valid_form(description="Lunch\n"))
+    resp = post_form(client, "/expenses/add", data=_valid_form(description="Lunch\n"))
     assert resp.status_code == 303
     rows = _rows(uid)
     assert len(rows) == 1
@@ -408,7 +412,7 @@ def test_non_ascii_description_stored_unchanged(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post("/expenses/add", data=_valid_form(description="चाय ☕"))
+    resp = post_form(client, "/expenses/add", data=_valid_form(description="चाय ☕"))
 
     assert resp.status_code == 303
     rows = _rows(uid)
@@ -423,11 +427,13 @@ def test_profile_totals_exact_ac16(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add", data=_valid_form(amount="0.10", category="Food", description="Tea")
     )
     assert resp.status_code == 303
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add", data=_valid_form(amount="0.20", category="Transport", description="Bus")
     )
     assert resp.status_code == 303
@@ -451,7 +457,8 @@ def test_description_escaped_on_profile_ac17(client):
     uid = _make_user()
     login_as(client, uid)
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add", data=_valid_form(description="<script>alert(1)</script>")
     )
     assert resp.status_code == 303
@@ -467,12 +474,14 @@ def test_description_escaped_on_profile_ac17(client):
 def test_end_to_end_login_add_profile_ac26(client):
     _make_user()
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/login", data={"email": "rahul@example.com", "password": "password123"}
     )
     assert resp.status_code == 302
 
-    resp = client.post(
+    resp = post_form(
+        client,
         "/expenses/add",
         data=_valid_form(amount="499.99", category="Shopping", description="Headphones"),
         follow_redirects=True,
