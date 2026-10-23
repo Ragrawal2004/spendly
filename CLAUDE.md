@@ -59,6 +59,10 @@ Flat, single-file Flask app — no blueprints, no app factory pattern. Everythin
 
 No ORM — raw `psycopg` access through `database/db.py`.
 
+## Claude Code hooks
+
+`.claude/settings.json` registers small standard-library Python hooks from `.claude/hooks/` (tested in `tests/test_hooks.py`). Each reads the hook JSON from stdin, exits 2 with a one-line reason to block, and fails open (exit 0) on malformed input or any exception. `block_main_commit.py` blocks `git commit`/`git push` on `main`; `block_secret_print.py` blocks commands that print secrets or dump the environment; `block_destructive_sql.py` blocks `DROP`, `TRUNCATE` and `DELETE FROM` without a `WHERE` against the `spendly` database (`spendly_test` stays allowed); `block_frontend_edit.py` blocks Edit, Write and NotebookEdit under `expense-tracker-frontend/`; `notify_done.py` shows a macOS notification on Stop. The Bash hooks match on the raw command text, so a commit message such as "print the DATABASE_URL note" is blocked on purpose. Known gap: `block_frontend_edit.py` covers only Edit, Write and NotebookEdit, so Bash writes to `expense-tracker-frontend/` (`sed -i`, redirects, `rm`) are not blocked.
+
 ## Roadmap
 
 Steps 1-7 and 9 are built. Then: Step 8 dashboard UI, Step 10 edit expense, Step 11 delete expense, Step 12 deploy. Step 12 must configure the production access log so it does not record query strings and must send a `Referrer-Policy: same-origin` header, because `/expenses` URLs carry the user's search text and filters.
