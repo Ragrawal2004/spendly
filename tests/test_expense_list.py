@@ -719,6 +719,13 @@ def test_page_clamped_ac27(client):
     assert "Showing 21-25 of 25" in text
     assert "Page 2 of 2" in text
 
+    resp = client.get("/expenses?page=999999999")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert _listed(body) == _PAGE_2
+    assert "Page 2 of 2" in _text(body)
+
     empty = _make_user("empty@example.com")
     login_as(client, empty)
     resp = client.get("/expenses?page=5")
