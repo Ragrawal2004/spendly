@@ -24,6 +24,8 @@ from database.db import (
     create_user,
     get_category_totals,
     get_expense_summary,
+    get_filtered_expenses,
+    get_filtered_summary,
     get_recent_expenses,
     get_user_by_email,
     get_user_by_id,
@@ -62,6 +64,9 @@ MIN_EXPENSE_DATE = date(2000, 1, 1)
 MAX_DESCRIPTION = 200
 _AMOUNT_RE = re.compile(r"[0-9]{1,15}(\.[0-9]{1,2})?")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+PAGE_SIZE = 20
+MAX_SEARCH = 100
+_PAGE_RE = re.compile(r"[0-9]{1,9}")
 
 
 def startup():
@@ -421,6 +426,78 @@ def add_expense():
         session.clear()
         return redirect(url_for("login"))
     return redirect(url_for("profile"), code=303)
+
+
+def _filter_date(value):
+    value = value.strip()
+    if not _DATE_RE.fullmatch(value):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def clean_expense_filters(args):
+    category = args.get("category", "").strip()
+    q = args.get("q", "").strip()
+    if not q or len(q) > MAX_SEARCH or any(unicodedata.category(c) == "Cc" for c in q):
+        q = None
+    page = args.get("page", "").strip()
+    return {
+        "category": category if category in CATEGORIES else None,
+        "date_from": _filter_date(args.get("date_from", "")),
+        "date_to": _filter_date(args.get("date_to", "")),
+        "q": q,
+        "page": max(int(page), 1) if _PAGE_RE.fullmatch(page) else 1,
+    }
+
+
+def page_window(count, page, page_size):
+    pages = max(1, (count + page_size - 1) // page_size)
+    page = min(max(page, 1), pages)
+    offset = (page - 1) * page_size
+    first = offset + 1 if count else 0
+    last = min(offset + page_size, count)
+    return {"page": page, "pages": pages, "offset": offset, "first": first, "last": last}
+
+
+@app.route("/expenses")
+@login_required
+def expense_list():
+    uid = g.current_user["id"]
+    filters = clean_expense_filters(request.args)
+    criteria = (filters["category"], filters["date_from"], filters["date_to"], filters["q"])
+
+    summary = get_filtered_summary(uid, *criteria)
+    pager = page_window(summary["count"], filters["page"], PAGE_SIZE)
+    expenses = []
+    owns_expenses = summary["count"] > 0
+    if owns_expenses:
+        expenses = get_filtered_expenses(uid, *criteria, PAGE_SIZE, pager["offset"])
+    elif any(value is not None for value in criteria):
+        # Pick the empty state: does the user own any expenses at all?
+        owns_expenses = get_filtered_summary(uid, None, None, None, None)["count"] > 0
+
+    # Only effective, non-default filters are carried into the page links (D7).
+    active = {key: filters[key] for key in ("category", "q") if filters[key] is not None}
+    for key in ("date_from", "date_to"):
+        if filters[key] is not None:
+            active[key] = filters[key].isoformat()
+    prev_url = next_url = None
+    if pager["page"] > 1:
+        prev_url = url_for("expense_list", page=pager["page"] - 1, **active)
+    if pager["page"] < pager["pages"]:
+        next_url = url_for("expense_list", page=pager["page"] + 1, **active)
+
+    return no_store(
+        render_template(
+            "expenses.html",
+            filters=filters, summary=summary, pager=pager, expenses=expenses,
+            owns_expenses=owns_expenses, prev_url=prev_url, next_url=next_url,
+            categories=CATEGORIES, max_search=MAX_SEARCH,
+        )
+    )
 
 
 # ------------------------------------------------------------------ #

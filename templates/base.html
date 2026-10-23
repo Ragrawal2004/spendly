@@ -20,6 +20,7 @@
             </a>
             <div class="nav-links">
                 {% if current_user %}
+                <a href="{{ url_for('expense_list') }}" class="nav-expenses">Expenses</a>
                 <a href="{{ url_for('add_expense') }}" class="nav-add">Add Expense</a>
                 <a href="{{ url_for('profile') }}" class="nav-user">{{ current_user["name"] }}</a>
                 <form method="POST" action="{{ url_for('logout') }}" class="nav-signout-form">

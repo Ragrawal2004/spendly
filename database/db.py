@@ -140,6 +140,68 @@ def get_recent_expenses(user_id: int, limit: int = 5) -> list[dict]:
         ).fetchall()
 
 
+# Shared by the count/total and the page query so they can never disagree.
+# ESCAPE '\\' in Python is ESCAPE '\' in SQL (standard_conforming_strings on).
+_EXPENSE_FILTER = (
+    "WHERE user_id = %(user_id)s "
+    "AND (%(category)s::text IS NULL OR category = %(category)s) "
+    "AND (%(date_from)s::date IS NULL OR date >= %(date_from)s) "
+    "AND (%(date_to)s::date IS NULL OR date <= %(date_to)s) "
+    "AND (%(pattern)s::text IS NULL OR description ILIKE %(pattern)s ESCAPE '\\') "
+)
+
+_FILTERED_SUMMARY_SQL = (
+    "SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total "
+    "FROM expenses " + _EXPENSE_FILTER
+)
+
+_FILTERED_EXPENSES_SQL = (
+    "SELECT id, amount, category, date, description "
+    "FROM expenses " + _EXPENSE_FILTER
+    + "ORDER BY date DESC, id DESC LIMIT %(limit)s OFFSET %(offset)s"
+)
+
+
+def _like_pattern(text: str) -> str:
+    # Backslash first, so the escapes added for % and _ are not doubled.
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _filter_params(
+    user_id: int, category: str | None, date_from: date | None,
+    date_to: date | None, search: str | None,
+) -> dict:
+    return {
+        "user_id": user_id,
+        "category": category,
+        "date_from": date_from,
+        "date_to": date_to,
+        "pattern": None if search is None else _like_pattern(search),
+    }
+
+
+def get_filtered_summary(
+    user_id: int, category: str | None, date_from: date | None,
+    date_to: date | None, search: str | None,
+) -> dict:
+    with closing(get_db()) as conn:
+        return conn.execute(
+            _FILTERED_SUMMARY_SQL,
+            _filter_params(user_id, category, date_from, date_to, search),
+        ).fetchone()
+
+
+def get_filtered_expenses(
+    user_id: int, category: str | None, date_from: date | None,
+    date_to: date | None, search: str | None, limit: int, offset: int,
+) -> list[dict]:
+    params = _filter_params(user_id, category, date_from, date_to, search)
+    params.update(limit=limit, offset=offset)
+    with closing(get_db()) as conn:
+        return conn.execute(_FILTERED_EXPENSES_SQL, params).fetchall()
+
+
 _DEMO_EXPENSES_TABLE = (
     (1, "Food", 450.00, "Weekly groceries"),
     (3, "Transport", 120.00, "Metro card recharge"),
