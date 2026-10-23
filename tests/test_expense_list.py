@@ -615,3 +615,184 @@ def test_escaping_ac33(client):
     assert 'value="&lt;b&gt;x&lt;/b&gt;"' in q_inputs[0]
     assert "<b>x</b>" not in body
     assert _listed(body) == []
+
+
+def _twenty_five(uid):
+    # e00 is the oldest (2026-03-01) and e24 the newest; every date is distinct.
+    for i in range(25):
+        _add(uid, day=date.fromordinal(date(2026, 3, 1).toordinal() + i).isoformat(),
+             description=f"e{i:02d}")
+
+
+_PAGE_1 = [f"e{i:02d}" for i in range(24, 4, -1)]
+_PAGE_2 = [f"e{i:02d}" for i in range(4, -1, -1)]
+
+
+def test_total_covers_all_pages_ac22(client):
+    uid = _make_user()
+    _add(uid, amount="0.10", day="2026-01-01")
+    for i in range(24):
+        _add(uid, amount="1000.00",
+             day=date.fromordinal(date(2026, 1, 2).toordinal() + i).isoformat())
+    _add(uid, amount="1234.50", day="2026-02-01")
+    login_as(client, uid)
+
+    resp = client.get("/expenses")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert len(_listed(body)) == 20
+    text = _text(body)
+    assert "Showing 1-20 of 26" in text
+    assert "Total: ₹25,234.60" in text
+
+
+def test_first_page_ac24(client):
+    uid = _make_user()
+    _twenty_five(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert resp.headers.get("Cache-Control") == "no-store"
+    assert _listed(body) == _PAGE_1
+    text = _text(body)
+    assert "Showing 1-20 of 25" in text
+    assert "Page 1 of 2" in text
+    next_href = _link(body, "Next")
+    assert next_href is not None
+    assert urlsplit(next_href).path == "/expenses"
+    assert _query(next_href) == {"page": ["2"]}
+    assert _link(body, "Previous") is None
+
+
+def test_last_page_ac25(client):
+    uid = _make_user()
+    _twenty_five(uid)
+    login_as(client, uid)
+
+    first = _listed(client.get("/expenses").get_data(as_text=True))
+    resp = client.get("/expenses?page=2")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert _listed(body) == _PAGE_2
+    text = _text(body)
+    assert "Showing 21-25 of 25" in text
+    assert "Page 2 of 2" in text
+    prev_href = _link(body, "Previous")
+    assert prev_href is not None
+    assert urlsplit(prev_href).path == "/expenses"
+    assert _query(prev_href) == {"page": ["1"]}
+    assert _link(body, "Next") is None
+    both = first + _listed(body)
+    assert len(both) == 25
+    assert sorted(both) == [f"e{i:02d}" for i in range(25)]
+
+
+def test_invalid_page_ac26(client):
+    uid = _make_user()
+    _twenty_five(uid)
+    login_as(client, uid)
+
+    for value in ("0", "-1", "abc", "1.5", " ", "٢", "1234567890"):
+        resp = client.get("/expenses", query_string={"page": value})
+        body = resp.get_data(as_text=True)
+        assert resp.status_code == 200, f"page={value!r}"
+        assert "Showing 1-20 of 25" in _text(body), f"page={value!r}"
+        assert _listed(body) == _PAGE_1, f"page={value!r}"
+
+
+def test_page_clamped_ac27(client):
+    uid = _make_user()
+    _twenty_five(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?page=99")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert _listed(body) == _PAGE_2
+    text = _text(body)
+    assert "Showing 21-25 of 25" in text
+    assert "Page 2 of 2" in text
+
+    empty = _make_user("empty@example.com")
+    login_as(client, empty)
+    resp = client.get("/expenses?page=5")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    block = _empty_block(body)
+    assert block is not None
+    assert "No expenses yet." in block
+
+
+def test_twenty_rows_one_page_ac28(client):
+    uid = _make_user()
+    for i in range(20):
+        _add(uid, day=date.fromordinal(date(2026, 3, 1).toordinal() + i).isoformat(),
+             description=f"e{i:02d}")
+    login_as(client, uid)
+
+    body = client.get("/expenses").get_data(as_text=True)
+    text = _text(body)
+    assert "Showing 1-20 of 20" in text
+    assert _link(body, "Previous") is None
+    assert _link(body, "Next") is None
+    assert "Page 1 of" not in text
+
+    _add(uid, day="2026-03-21", description="e20")
+    body = client.get("/expenses").get_data(as_text=True)
+    assert "Page 1 of 2" in _text(body)
+    assert _link(body, "Next") is not None
+
+
+def test_next_link_keeps_filters_ac29(client):
+    uid = _make_user()
+    for i in range(1, 26):
+        _add(uid, category="Food", day=f"2026-04-{i:02d}", description=f"item {i:02d} 50% & more")
+    login_as(client, uid)
+
+    resp = client.get("/expenses", query_string={
+        "category": "Food", "date_from": "2026-04-01", "date_to": "2026-04-30",
+        "q": "50% & more",
+    })
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    raw = re.search(r'<a\b[^>]*\bhref="([^"]*)"[^>]*>\s*Next\s*</a>', body)
+    assert raw is not None
+    assert "&amp;" in raw.group(1)
+    assert re.search(r"&(?!amp;)", raw.group(1)) is None
+    href = html.unescape(raw.group(1))
+    assert _query(href) == {
+        "category": ["Food"], "date_from": ["2026-04-01"], "date_to": ["2026-04-30"],
+        "q": ["50% & more"], "page": ["2"],
+    }
+
+    resp = client.get(href)
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert _listed(body) == [f"item {i:02d} 50% & more" for i in range(5, 0, -1)]
+    assert "Showing 21-25 of 25" in _text(body)
+    assert _selected_option(body) == "Food"
+    assert _input_value(body, "date_from") == "2026-04-01"
+    assert _input_value(body, "date_to") == "2026-04-30"
+    assert _input_value(body, "q") == "50% & more"
+
+
+def test_next_link_drops_junk_ac30(client):
+    uid = _make_user()
+    _twenty_five(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?page=1&user_id=7&foo=bar&category=food&q=")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    next_href = _link(body, "Next")
+    assert next_href is not None
+    assert _query(next_href) == {"page": ["2"]}

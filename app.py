@@ -470,7 +470,7 @@ def expense_list():
     criteria = (filters["category"], filters["date_from"], filters["date_to"], filters["q"])
 
     summary = get_filtered_summary(uid, *criteria)
-    pager = page_window(summary["count"], 1, PAGE_SIZE)
+    pager = page_window(summary["count"], filters["page"], PAGE_SIZE)
     expenses = []
     has_expenses = summary["count"] > 0
     if has_expenses:
@@ -479,11 +479,22 @@ def expense_list():
         # Pick the empty state: does the user own any expenses at all?
         has_expenses = get_filtered_summary(uid, None, None, None, None)["count"] > 0
 
+    # Only effective, non-default filters are carried into the page links (D7).
+    active = {key: filters[key] for key in ("category", "q") if filters[key] is not None}
+    for key in ("date_from", "date_to"):
+        if filters[key] is not None:
+            active[key] = filters[key].isoformat()
+    prev_url = next_url = None
+    if pager["page"] > 1:
+        prev_url = url_for("expense_list", page=pager["page"] - 1, **active)
+    if pager["page"] < pager["pages"]:
+        next_url = url_for("expense_list", page=pager["page"] + 1, **active)
+
     return no_store(
         render_template(
             "expenses.html",
             filters=filters, summary=summary, pager=pager, expenses=expenses,
-            has_expenses=has_expenses, prev_url=None, next_url=None,
+            has_expenses=has_expenses, prev_url=prev_url, next_url=next_url,
             categories=CATEGORIES, max_search=MAX_SEARCH,
         )
     )
