@@ -168,7 +168,10 @@ def _like_pattern(text: str) -> str:
     return f"%{escaped}%"
 
 
-def _filter_params(user_id, category, date_from, date_to, search) -> dict:
+def _filter_params(
+    user_id: int, category: str | None, date_from: date | None,
+    date_to: date | None, search: str | None,
+) -> dict:
     return {
         "user_id": user_id,
         "category": category,
