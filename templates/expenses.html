@@ -61,7 +61,7 @@
         {% if next_url %}<a href="{{ next_url }}" class="btn btn-ghost" rel="next">Next</a>{% endif %}
     </nav>
     {% endif %}
-    {% elif has_expenses %}
+    {% elif owns_expenses %}
     <div class="empty-state">
         <p>No expenses match these filters.</p>
         <a href="{{ url_for('expense_list') }}" class="btn btn-ghost">Clear filters</a>
