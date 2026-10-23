@@ -546,3 +546,7 @@ Do not commit until I have reviewed the diff.
 | V | — | `/code-review-feature`, then `/test-feature`; approved fix batches | Opus | 309 + A |
 | S | 6 | Read-only sweep, DoD greps (after the last commit), Playwright checks as the demo user, cleanup by exact id | Opus | 309 + A |
 | Ship | — | Push and open the PR after my go-ahead; I merge | Sonnet | 309 + A |
+
+**Deferred:** share the date parsing between `_filter_date` and `validate_expense` in Step 10.
+
+**Manual check (review item 2):** the 360px mobile navbar check on `/`, `/login`, `/register`, `/profile` and `/expenses` was done by hand and passed.
