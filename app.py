@@ -24,6 +24,8 @@ from database.db import (
     create_user,
     get_category_totals,
     get_expense_summary,
+    get_filtered_expenses,
+    get_filtered_summary,
     get_recent_expenses,
     get_user_by_email,
     get_user_by_id,
@@ -458,6 +460,30 @@ def page_window(count, page, page_size):
     first = offset + 1 if count else 0
     last = min(offset + page_size, count)
     return {"page": page, "pages": pages, "offset": offset, "first": first, "last": last}
+
+
+@app.route("/expenses")
+@login_required
+def expense_list():
+    uid = g.current_user["id"]
+    filters = clean_expense_filters({})
+    criteria = (filters["category"], filters["date_from"], filters["date_to"], filters["q"])
+
+    summary = get_filtered_summary(uid, *criteria)
+    pager = page_window(summary["count"], 1, PAGE_SIZE)
+    expenses = []
+    has_expenses = summary["count"] > 0
+    if has_expenses:
+        expenses = get_filtered_expenses(uid, *criteria, PAGE_SIZE, pager["offset"])
+
+    return no_store(
+        render_template(
+            "expenses.html",
+            filters=filters, summary=summary, pager=pager, expenses=expenses,
+            has_expenses=has_expenses, prev_url=None, next_url=None,
+            categories=CATEGORIES, max_search=MAX_SEARCH,
+        )
+    )
 
 
 # ------------------------------------------------------------------ #
