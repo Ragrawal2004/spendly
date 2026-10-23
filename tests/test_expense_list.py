@@ -302,3 +302,316 @@ def test_read_only_page_ac8(client):
     options = re.findall(r'<option\b[^>]*\bvalue="([^"]*)"[^>]*>(.*?)</option>', body)
     assert [value for value, _ in options] == ["", *CATEGORIES]
     assert options[0][1] == "All categories"
+
+
+def _three_categories(uid):
+    _add(uid, amount="10.00", category="Food", day="2026-03-01", description="food-1")
+    _add(uid, amount="20.00", category="Bills", day="2026-03-02", description="bills-1")
+    _add(uid, amount="5.50", category="Food", day="2026-03-03", description="food-2")
+
+
+def _four_dates(uid):
+    _add(uid, day="2026-03-31", description="mar-31")
+    _add(uid, day="2026-04-01", description="apr-01")
+    _add(uid, day="2026-04-30", description="apr-30")
+    _add(uid, day="2026-05-01", description="may-01")
+
+
+def test_category_filter_ac9(client):
+    uid = _make_user()
+    _three_categories(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?category=Food")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert _listed(body) == ["food-2", "food-1"]
+    text = _text(body)
+    assert "Showing 1-2 of 2" in text
+    assert "Total: \u20b915.50" in text
+    assert _selected_option(body) == "Food"
+
+
+def test_invalid_category_ignored_ac10(client):
+    uid = _make_user()
+    _three_categories(uid)
+    login_as(client, uid)
+
+    for value in ("food", "Groceries", "Food' OR '1'='1", " "):
+        resp = client.get("/expenses", query_string={"category": value})
+        body = resp.get_data(as_text=True)
+        assert resp.status_code == 200, f"category={value!r}"
+        assert _listed(body) == ["food-2", "bills-1", "food-1"], f"category={value!r}"
+        assert _selected_option(body) == "", f"category={value!r}"
+
+
+def test_date_range_inclusive_ac11(client):
+    uid = _make_user()
+    _four_dates(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?date_from=2026-04-01&date_to=2026-04-30")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert _listed(body) == ["apr-30", "apr-01"]
+    assert _input_value(body, "date_from") == "2026-04-01"
+    assert _input_value(body, "date_to") == "2026-04-30"
+
+
+def test_single_date_bounds_ac12(client):
+    uid = _make_user()
+    _four_dates(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?date_from=2026-04-30")
+    assert _listed(resp.get_data(as_text=True)) == ["may-01", "apr-30"]
+
+    resp = client.get("/expenses?date_to=2026-04-01")
+    assert _listed(resp.get_data(as_text=True)) == ["apr-01", "mar-31"]
+
+    resp = client.get("/expenses?date_from=2026-04-01&date_to=2026-04-01")
+    assert _listed(resp.get_data(as_text=True)) == ["apr-01"]
+
+
+def test_reversed_dates_no_match_ac13(client):
+    uid = _make_user()
+    _four_dates(uid)
+    login_as(client, uid)
+
+    resp = client.get("/expenses?date_from=2026-05-01&date_to=2026-04-01")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    assert "No expenses match these filters." in _text(body)
+    assert "<table" not in body
+
+
+def test_invalid_dates_ignored_ac14(client):
+    uid = _make_user()
+    _four_dates(uid)
+    login_as(client, uid)
+    everything = ["may-01", "apr-30", "apr-01", "mar-31"]
+
+    for name in ("date_from", "date_to"):
+        for value in (
+            "2026-02-30",
+            "2026-4-1",
+            "yesterday",
+            "2026-04-01T00:00",
+            "\uff12\uff10\uff12\uff16-04-01",
+            "0000-01-01",
+        ):
+            resp = client.get("/expenses", query_string={name: value})
+            body = resp.get_data(as_text=True)
+            assert resp.status_code == 200, f"{name}={value!r}"
+            assert _listed(body) == everything, f"{name}={value!r}"
+            assert _input_value(body, name) == "", f"{name}={value!r}"
+
+
+def test_search_case_insensitive_ac15(client):
+    uid = _make_user()
+    _add(uid, day="2026-03-01", description="Team lunch")
+    _add(uid, day="2026-03-02", description="LUNCHBOX")
+    _add(uid, day="2026-03-03", description="Dinner")
+    _add(uid, day="2026-03-04")
+    login_as(client, uid)
+
+    resp = client.get("/expenses?q=lunch")
+    assert _listed(resp.get_data(as_text=True)) == ["LUNCHBOX", "Team lunch"]
+
+    resp = client.get("/expenses", query_string={"q": "  lunch  "})
+    body = resp.get_data(as_text=True)
+    assert _listed(body) == ["LUNCHBOX", "Team lunch"]
+    assert _input_value(body, "q") == "lunch"
+
+
+def test_search_percent_literal_ac16(client):
+    uid = _make_user()
+    _add(uid, day="2026-03-01", description="50% off shoes")
+    _add(uid, day="2026-03-02", description="500 rupees")
+    _add(uid, day="2026-03-03", description="5 0 %")
+    _add(uid, day="2026-03-04", description="Paid 50")
+    login_as(client, uid)
+
+    resp = client.get("/expenses", query_string={"q": "50%"})
+
+    assert resp.status_code == 200
+    assert _listed(resp.get_data(as_text=True)) == ["50% off shoes"]
+
+
+def test_search_underscore_backslash_ac17(client):
+    uid = _make_user()
+    _add(uid, day="2026-03-01", description="a_b")
+    _add(uid, day="2026-03-02", description="axb")
+    _add(uid, day="2026-03-03", description=r"C:\temp")
+    _add(uid, day="2026-03-04", description=r"100\%")
+    _add(uid, day="2026-03-05", description="plain")
+    login_as(client, uid)
+
+    expected = {
+        "a_b": ["a_b"],
+        "\\": [r"100\%", r"C:\temp"],
+        r"\%": [r"100\%"],
+        "_": ["a_b"],
+    }
+    for value, listed in expected.items():
+        resp = client.get("/expenses", query_string={"q": value})
+        assert resp.status_code == 200, f"q={value!r}"
+        assert _listed(resp.get_data(as_text=True)) == listed, f"q={value!r}"
+
+
+def test_search_length_limits_ac18(client):
+    uid = _make_user()
+    long_description = "long-" * 20
+    assert len(long_description) == 100
+    _add(uid, day="2026-03-01", description="first")
+    _add(uid, day="2026-03-02", description="second")
+    _add(uid, day="2026-03-03", description="third")
+    _add(uid, day="2026-03-04", description=long_description)
+    login_as(client, uid)
+    everything = [long_description, "third", "second", "first"]
+
+    resp = client.get("/expenses", query_string={"q": "   "})
+    body = resp.get_data(as_text=True)
+    assert _listed(body) == everything
+    assert "No expenses match" not in body
+
+    resp = client.get("/expenses", query_string={"q": "x" * 101})
+    body = resp.get_data(as_text=True)
+    assert _listed(body) == everything
+    assert _input_value(body, "q") == ""
+
+    resp = client.get("/expenses", query_string={"q": long_description})
+    assert _listed(resp.get_data(as_text=True)) == [long_description]
+
+
+def test_search_control_chars_ac19(client):
+    uid = _make_user()
+    _add(uid, day="2026-03-01", description="ab")
+    _add(uid, day="2026-03-02", description="a b")
+    login_as(client, uid)
+
+    for value in ("a\x00b", "a\nb", "\x7f"):
+        resp = client.get("/expenses", query_string={"q": value})
+        assert resp.status_code == 200, f"q={value!r}"
+        assert _listed(resp.get_data(as_text=True)) == ["a b", "ab"], f"q={value!r}"
+
+
+def test_filters_combine_ac20(client):
+    uid = _make_user()
+    _add(uid, category="Food", day="2026-04-01", description="Lunch first")
+    _add(uid, category="Food", day="2026-04-10", description="team lunch")
+    _add(uid, category="Food", day="2026-04-30", description="LUNCH last")
+    _add(uid, category="Bills", day="2026-04-10", description="lunch bill")
+    _add(uid, category="Food", day="2026-03-31", description="lunch early")
+    _add(uid, category="Food", day="2026-05-01", description="lunch late")
+    _add(uid, category="Food", day="2026-04-15", description="dinner")
+    login_as(client, uid)
+
+    resp = client.get(
+        "/expenses?category=Food&date_from=2026-04-01&date_to=2026-04-30&q=lunch"
+    )
+
+    assert resp.status_code == 200
+    assert _listed(resp.get_data(as_text=True)) == ["LUNCH last", "team lunch", "Lunch first"]
+
+
+def _table_state():
+    with closing(get_db()) as conn:
+        return conn.execute(
+            "SELECT (SELECT count(*) FROM users) AS users, "
+            "(SELECT count(*) FROM expenses) AS expenses, "
+            "to_regclass('public.users') IS NOT NULL AS users_exists, "
+            "to_regclass('public.expenses') IS NOT NULL AS expenses_exists"
+        ).fetchone()
+
+
+def test_injection_strings_harmless_ac21(client):
+    a = _make_user("a@example.com")
+    b = _make_user("b@example.com")
+    a_descriptions = ["50% off", "100%", "plain one", "plain two"]
+    for i, description in enumerate(a_descriptions, start=1):
+        _add(a, day=f"2026-03-0{i}", description=description)
+    b_tokens = ["zq-b-7781", "zq-b-7782"]
+    for token in b_tokens:
+        _add(b, description=token)
+    login_as(client, a)
+    before = _table_state()
+    assert before["users_exists"] and before["expenses_exists"]
+
+    values = (
+        "' OR 1=1 --",
+        "'; DROP TABLE expenses; --",
+        "<script>alert(1)</script>",
+        "%' OR '1'='1",
+        "%",
+    )
+    for name in ("category", "date_from", "date_to", "q", "page"):
+        for value in values:
+            resp = client.get("/expenses", query_string={name: value})
+            body = resp.get_data(as_text=True)
+            assert resp.status_code == 200, f"{name}={value!r}"
+            for token in b_tokens:
+                assert token not in body, f"{name}={value!r}"
+            assert "<script>alert(1)" not in body, f"{name}={value!r}"
+            if name == "q":
+                expected = {d for d in a_descriptions if value in d}
+            else:
+                expected = set(a_descriptions)
+            assert set(_listed(body)) == expected, f"{name}={value!r}"
+
+    assert _table_state() == before
+
+
+def test_no_expenses_beats_no_match_ac31(client):
+    uid = _make_user()
+    login_as(client, uid)
+
+    resp = client.get("/expenses?q=anything&category=Food")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    block = _empty_block(body)
+    assert block is not None
+    assert "No expenses yet." in block
+    assert "No expenses match these filters." not in body
+
+
+def test_no_match_empty_state_ac32(client):
+    uid = _make_user()
+    _add(uid, category="Bills", description="power")
+    _add(uid, category="Bills", day="2026-03-02", description="water")
+    login_as(client, uid)
+
+    resp = client.get("/expenses?category=Food")
+    body = resp.get_data(as_text=True)
+
+    assert resp.status_code == 200
+    block = _empty_block(body)
+    assert block is not None
+    assert "No expenses match these filters." in block
+    assert _link(block, "Clear filters") == "/expenses"
+    assert "<table" not in body
+    assert "Showing" not in body
+    assert "Total:" not in body
+
+
+def test_escaping_ac33(client):
+    uid = _make_user()
+    _add(uid, description="<script>alert(1)</script> & \u202eabc")
+    login_as(client, uid)
+
+    body = client.get("/expenses").get_data(as_text=True)
+    assert "<bdi>&lt;script&gt;alert(1)&lt;/script&gt; &amp; \u202eabc</bdi>" in body
+    assert "<script>alert(1)" not in body
+
+    resp = client.get("/expenses", query_string={"q": "<b>x</b>"})
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    q_inputs = [tag for tag in re.findall(r"<input\b[^>]*>", body) if 'name="q"' in tag]
+    assert len(q_inputs) == 1
+    assert 'value="&lt;b&gt;x&lt;/b&gt;"' in q_inputs[0]
+    assert "<b>x</b>" not in body
+    assert _listed(body) == []

@@ -466,7 +466,7 @@ def page_window(count, page, page_size):
 @login_required
 def expense_list():
     uid = g.current_user["id"]
-    filters = clean_expense_filters({})
+    filters = clean_expense_filters(request.args)
     criteria = (filters["category"], filters["date_from"], filters["date_to"], filters["q"])
 
     summary = get_filtered_summary(uid, *criteria)
@@ -475,6 +475,9 @@ def expense_list():
     has_expenses = summary["count"] > 0
     if has_expenses:
         expenses = get_filtered_expenses(uid, *criteria, PAGE_SIZE, pager["offset"])
+    elif any(value is not None for value in criteria):
+        # Pick the empty state: does the user own any expenses at all?
+        has_expenses = get_filtered_summary(uid, None, None, None, None)["count"] > 0
 
     return no_store(
         render_template(
