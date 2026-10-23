@@ -5,9 +5,11 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
+from werkzeug.datastructures import MultiDict
 from werkzeug.security import generate_password_hash
 
 import app
+from app import clean_expense_filters, page_window
 from database.db import (
     _like_pattern,
     create_expense,
@@ -105,3 +107,48 @@ def test_filtered_summary_types_ac23(client):
 
 def test_like_pattern_ac36():
     assert _like_pattern(r"50%_\x") == r"%50\%\_\\x%"
+
+
+def test_clean_expense_filters_ac34():
+    keys = {"category", "date_from", "date_to", "q", "page"}
+
+    result = clean_expense_filters(MultiDict())
+    assert result == {
+        "category": None, "date_from": None, "date_to": None, "q": None, "page": 1,
+    }
+
+    result = clean_expense_filters(MultiDict([("category", " Food "), ("category", "Bills")]))
+    assert set(result) == keys
+    assert result["category"] == "Food"
+
+    result = clean_expense_filters(MultiDict({"date_from": "2026-04-01"}))
+    assert set(result) == keys
+    assert result["date_from"] == date(2026, 4, 1)
+
+    result = clean_expense_filters(MultiDict({"q": "x" * 100}))
+    assert set(result) == keys
+    assert result["q"] == "x" * 100
+
+    for value in ("x" * 101, "a\x00b"):
+        result = clean_expense_filters(MultiDict({"q": value}))
+        assert set(result) == keys, f"q={value!r}"
+        assert result["q"] is None, f"q={value!r}"
+
+    result = clean_expense_filters(MultiDict({"page": "3"}))
+    assert set(result) == keys
+    assert result["page"] == 3
+
+    for value in ("0", "\u0663", "1234567890"):
+        result = clean_expense_filters(MultiDict({"page": value}))
+        assert set(result) == keys, f"page={value!r}"
+        assert result["page"] == 1, f"page={value!r}"
+
+
+def test_page_window_ac35():
+    last_page = {"page": 2, "pages": 2, "offset": 20, "first": 21, "last": 25}
+    assert page_window(0, 1, 20) == {"page": 1, "pages": 1, "offset": 0, "first": 0, "last": 0}
+    assert page_window(25, 1, 20) == {"page": 1, "pages": 2, "offset": 0, "first": 1, "last": 20}
+    assert page_window(25, 2, 20) == last_page
+    assert page_window(25, 99, 20) == last_page
+    assert page_window(20, 2, 20) == {"page": 1, "pages": 1, "offset": 0, "first": 1, "last": 20}
+    assert page_window(21, 2, 20) == {"page": 2, "pages": 2, "offset": 20, "first": 21, "last": 21}

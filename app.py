@@ -62,6 +62,9 @@ MIN_EXPENSE_DATE = date(2000, 1, 1)
 MAX_DESCRIPTION = 200
 _AMOUNT_RE = re.compile(r"[0-9]{1,15}(\.[0-9]{1,2})?")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+PAGE_SIZE = 20
+MAX_SEARCH = 100
+_PAGE_RE = re.compile(r"[0-9]{1,9}")
 
 
 def startup():
@@ -421,6 +424,40 @@ def add_expense():
         session.clear()
         return redirect(url_for("login"))
     return redirect(url_for("profile"), code=303)
+
+
+def _filter_date(value):
+    value = value.strip()
+    if not _DATE_RE.fullmatch(value):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def clean_expense_filters(args):
+    category = args.get("category", "").strip()
+    q = args.get("q", "").strip()
+    if not q or len(q) > MAX_SEARCH or any(unicodedata.category(c) == "Cc" for c in q):
+        q = None
+    page = args.get("page", "").strip()
+    return {
+        "category": category if category in CATEGORIES else None,
+        "date_from": _filter_date(args.get("date_from", "")),
+        "date_to": _filter_date(args.get("date_to", "")),
+        "q": q,
+        "page": max(int(page), 1) if _PAGE_RE.fullmatch(page) else 1,
+    }
+
+
+def page_window(count, page, page_size):
+    pages = max(1, (count + page_size - 1) // page_size)
+    page = min(max(page, 1), pages)
+    offset = (page - 1) * page_size
+    first = offset + 1 if count else 0
+    last = min(offset + page_size, count)
+    return {"page": page, "pages": pages, "offset": offset, "first": first, "last": last}
 
 
 # ------------------------------------------------------------------ #
