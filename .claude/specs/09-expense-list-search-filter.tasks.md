@@ -416,11 +416,13 @@ First run `git branch --show-current`; stop if it says `main`.
    - Do not commit until I have reviewed the diff.
 4. Tests added by `/test-feature` that I approve go in their own batch commit (`test: ...`). Tests I reject are removed before any commit. Approved extra tests change the spec's "309" Definition of done count, so record A here.
 
-**Expected count:** 309 + A, where A is the number of collected tests added in approved batches (0 if none). **Recorded:** _(fill in when V ends)_.
+**Expected count:** 309 + A, where A is the number of collected tests added in approved batches (0 if none). **Recorded:** A = 0 new tests; final expected count 309.
 
 **Commit:** none of its own; one per approved fix batch.
 
 Do not commit until I have reviewed the diff.
+
+V result: code review approved with suggestions (fixes applied or deferred as listed); /test-feature added 0 tests (A = 0); expected count stays 309.
 
 ---
 
